@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, X, Pen, StickyNote, Highlighter, MapPin, Clock, ChevronRight, FileText, Trash2 } from "lucide-react";
-import { motion } from "framer-motion";
+import PanelOverlay from "./PanelOverlay";
 import { searchAnnotations, getAnnotationCounts, type SearchResult, type FilterType } from "../utils/search";
 import { db } from "../store/db";
+import type { Annotation } from "../store/db";
 
 const typeIcon = (type: string) => {
   switch (type) {
@@ -88,20 +89,13 @@ export default function SearchPanel({ onClose }: Props) {
 
   const deleteResult = async (result: SearchResult, e: React.MouseEvent) => {
     e.stopPropagation();
-    switch (result.type) {
-      case 'highlight':
-        await db.highlights.delete(result.id);
-        break;
-      case 'note':
-        await db.notes.delete(result.id);
-        break;
-      case 'drawing':
-        // Delete all strokes for that URL
-        const strokesOnUrl = await db.strokes.where({ url: result.url }).toArray();
-        await db.strokes.bulkDelete(strokesOnUrl.map(s => s.id));
-        break;
+    if (result.type === 'drawing') {
+      // Delete all strokes for that URL
+      const strokesOnUrl = await db.annotations.where('[url+type]').equals([result.url, 'stroke']).toArray();
+      await db.annotations.bulkDelete(strokesOnUrl.map((s: Annotation) => s.id));
+    } else {
+      await db.annotations.delete(result.id);
     }
-    // Refresh results and counts
     runSearch(query, filter);
     getAnnotationCounts().then(setCounts);
   };
@@ -119,10 +113,6 @@ export default function SearchPanel({ onClose }: Props) {
       case 'Enter':
         e.preventDefault();
         if (results[selectedIdx]) navigateToResult(results[selectedIdx]);
-        break;
-      case 'Escape':
-        e.preventDefault();
-        onClose();
         break;
       case 'Backspace':
         if (e.metaKey && results[selectedIdx]) {
@@ -143,37 +133,7 @@ export default function SearchPanel({ onClose }: Props) {
   ];
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 99999,
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        paddingTop: '15vh',
-        backgroundColor: 'rgba(0,0,0,0.3)',
-        backdropFilter: 'blur(4px)',
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onKeyDown={handleKeyDown}
-    >
-      <motion.div
-        initial={{ opacity: 0, y: -20, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: -20, scale: 0.96 }}
-        transition={{ type: 'spring', bounce: 0.2, duration: 0.35 }}
-        style={{
-          width: 560,
-          maxHeight: '60vh',
-          borderRadius: 16,
-          overflow: 'hidden',
-          boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
-          background: 'white',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
+    <PanelOverlay onClose={onClose} width={560}>
         {/* Search input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
           <Search size={20} style={{ color: '#94a3b8', flexShrink: 0 }} />
@@ -181,6 +141,7 @@ export default function SearchPanel({ onClose }: Props) {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Search all annotations..."
             style={{
               flex: 1,
@@ -315,7 +276,6 @@ export default function SearchPanel({ onClose }: Props) {
           <span><kbd style={{ padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', border: '1px solid #e2e8f0', marginRight: 4 }}>↵</kbd> jump to</span>
           <span><kbd style={{ padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', border: '1px solid #e2e8f0', marginRight: 4 }}>⌘⌫</kbd> delete</span>
         </div>
-      </motion.div>
-    </div>
+    </PanelOverlay>
   );
 }

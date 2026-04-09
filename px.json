@@ -1,0 +1,1 @@
+{"name": "annotator-v2", "private": true, "version": "0.0.0", "type": "module", "scripts": {"dev": "vite", "build": "tsc -b && vite build", "lint": "eslint .", "preview": "vite preview"}, "dependencies": {"preact": "^10.24.0"}, "devDependencies": {"@preact/preset-vite": "^2.9.0", "typescript": "~5.5.3", "vite": "^5.4.1"}}

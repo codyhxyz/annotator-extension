@@ -1,0 +1,21 @@
+{
+  "name": "annotator-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --persist-to=.wrangler/state",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute annotator-db --file=src/migrations/0001_initial.sql",
+    "db:migrate:local": "wrangler d1 execute annotator-db --file=src/migrations/0001_initial.sql --local --persist-to=.wrangler/state",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "@clerk/backend": "^1.21.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "typescript": "~5.7.2",
+    "wrangler": "^3.112.0"
+  }
+}

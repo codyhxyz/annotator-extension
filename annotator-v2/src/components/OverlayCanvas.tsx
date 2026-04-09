@@ -33,7 +33,14 @@ export default function OverlayCanvas({ isActive, activeTool, penColor = '#ef444
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || !isActive) {
+      // Zero out canvas when inactive to free GPU memory
+      if (canvas && canvas.width > 0) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      return;
+    }
 
     const resize = () => {
       const w = Math.max(
@@ -56,16 +63,15 @@ export default function OverlayCanvas({ isActive, activeTool, penColor = '#ef444
     let timer: ReturnType<typeof setTimeout>;
     const ro = new ResizeObserver(() => {
       clearTimeout(timer);
-      timer = setTimeout(resize, 100);
+      timer = setTimeout(resize, 200);
     });
     ro.observe(document.body);
-    ro.observe(document.documentElement);
 
     return () => {
       ro.disconnect();
       clearTimeout(timer);
     };
-  }, []);
+  }, [isActive]);
 
   // Highlighter removed — it needs page text interaction, not canvas
   const canvasPointerEvents =

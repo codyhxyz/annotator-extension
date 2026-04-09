@@ -3,6 +3,8 @@ import { Pen, StickyNote, Highlighter, Eraser, Trash2, MousePointer2, Search, Do
 import { motion, AnimatePresence } from "framer-motion";
 import { clearAll } from "../store/undoable";
 import { exportAndDownload } from "../utils/exportAnnotations";
+import PresenceIndicator from "./PresenceIndicator";
+import AuthButton from "./AuthButton";
 import type { UndoAction } from "../hooks/useUndoRedo";
 
 interface Props {
@@ -115,6 +117,7 @@ export default function CommandPalette({ activeTool, onSelectTool, onClose, onUn
               );
             })}
           </div>
+          <PresenceIndicator />
           <div className="flex items-center gap-1 pl-2">
             <button
               onClick={() => onSearchOpen?.()}
@@ -123,7 +126,7 @@ export default function CommandPalette({ activeTool, onSelectTool, onClose, onUn
             >
               <Search size={20} className="stroke-2" />
             </button>
-            <button
+<button
               onClick={() => chrome.runtime.sendMessage({ type: "OPEN_FEED" })}
               className="p-3 rounded-full text-slate-600 hover:bg-slate-100/50 hover:text-slate-900 transition-all duration-200 hover:scale-105"
               title="All Annotations"
@@ -145,6 +148,7 @@ export default function CommandPalette({ activeTool, onSelectTool, onClose, onUn
             >
               <Trash2 size={20} />
             </button>
+            <AuthButton />
           </div>
         </motion.div>
       </AnimatePresence>

@@ -28,11 +28,13 @@ export interface TextPositionSelector {
 export interface AnnotationSelector {
   quote: TextQuoteSelector;
   position: TextPositionSelector;
+  /** SHA-256 hash of normalized highlighted text — content-addressed anchor for durability */
+  textHash?: string;
 }
 
 // ── Serialize: Range → JSON string ──────────────────────────────────
 
-export function serializeRange(range: Range): string {
+export async function serializeRange(range: Range): Promise<string> {
   const bodyText = document.body.textContent ?? '';
   const exact = range.toString();
 
@@ -47,12 +49,24 @@ export function serializeRange(range: Range): string {
   const prefix = bodyText.slice(Math.max(0, start - CONTEXT_CHARS), start);
   const suffix = bodyText.slice(end, end + CONTEXT_CHARS);
 
+  // Content-addressed hash — normalize whitespace before hashing
+  const normalized = exact.trim().replace(/\s+/g, ' ').toLowerCase();
+  const textHash = await hashText(normalized);
+
   const selector: AnnotationSelector = {
     quote: { type: 'TextQuoteSelector', exact, prefix, suffix },
     position: { type: 'TextPositionSelector', start, end },
+    textHash,
   };
 
   return JSON.stringify(selector);
+}
+
+/** SHA-256 hash of text, returned as hex string. */
+async function hashText(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ── Deserialize: JSON string → Range ────────────────────────────────
@@ -93,6 +107,9 @@ export function deserializeRange(serialized: string): Range | null {
       const range = offsetsToRange(idx + offset, idx + offset + exact.length);
       if (range) return range;
     }
+
+    // textHash is stored for CLI-based reanchoring (ann orphans / ann reanchor),
+    // not used at runtime — scanning the full page text is too expensive in-browser.
 
     return null;
   } catch {

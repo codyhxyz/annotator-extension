@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { db, type StickyNote } from '../store/db';
-import { deleteNote } from '../store/undoable';
+import { db, type Annotation, type PrivacyLevel, getNoteData } from '../store/db';
+import { deleteAnnotation } from '../store/undoable';
 import { Pin, PinOff } from 'lucide-react';
+import PrivacyToggle from './PrivacyToggle';
 import type { UndoAction } from '../hooks/useUndoRedo';
 
 interface Props {
-  note: StickyNote;
+  annotation: Annotation;
   onUndoableAction?: (action: UndoAction) => void;
 }
 
@@ -13,17 +14,24 @@ const MIN_WIDTH = 180;
 const MIN_HEIGHT = 80;
 const MAX_AUTO_HEIGHT = 400;
 
-export default function AnnotationCard({ note, onUndoableAction }: Props) {
-  const [text, setText] = useState(note.text);
-  const [position, setPosition] = useState({ x: note.x, y: note.y });
-  const [size, setSize] = useState({ width: note.width || 250, height: note.height || 120 });
+export default function AnnotationCard({ annotation, onUndoableAction }: Props) {
+  const noteData = getNoteData(annotation);
+  const [text, setText] = useState(noteData.text);
+  const [position, setPosition] = useState({ x: noteData.x, y: noteData.y });
+  const [size, setSize] = useState({ width: noteData.width || 250, height: noteData.height || 120 });
   const [isFocused, setIsFocused] = useState(false);
-  const [pinned, setPinned] = useState(!!note.pinned);
-  const textOnFocusRef = useRef(note.text);
+  const [pinned, setPinned] = useState(!!noteData.pinned);
+  const [privacy, setPrivacy] = useState<PrivacyLevel>(annotation.privacy || 'private');
+  const textOnFocusRef = useRef(noteData.text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [userResized, setUserResized] = useState(false);
 
-  // Auto-size height based on text content (only if user hasn't manually resized)
+  const updateData = useCallback((patch: Record<string, unknown>) => {
+    const current = getNoteData(annotation);
+    const updated = { ...current, ...patch };
+    db.annotations.update(annotation.id, { data: JSON.stringify(updated), syncStatus: 'pending', updatedAt: Math.floor(Date.now() / 1000) });
+  }, [annotation]);
+
   useEffect(() => {
     if (userResized) return;
     const el = textareaRef.current;
@@ -36,65 +44,62 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
     const totalHeight = Math.max(MIN_HEIGHT, Math.min(contentHeight + 16 + 24, MAX_AUTO_HEIGHT));
     if (Math.abs(totalHeight - size.height) > 4) {
       setSize(prev => ({ ...prev, height: totalHeight }));
-      db.notes.update(note.id, { height: totalHeight });
+      updateData({ height: totalHeight });
     }
-  }, [text, userResized, note.id]);
+  }, [text, userResized, annotation.id, updateData]);
 
-  // Debounced DB update for text
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (text !== note.text) {
-        db.notes.update(note.id, { text });
+      if (text !== noteData.text) {
+        updateData({ text });
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [text, note.id, note.text]);
+  }, [text, annotation.id, noteData.text, updateData]);
 
-  // Toggle pin state
   const handleTogglePin = useCallback(() => {
     const wasPinned = pinned;
     const newPinned = !wasPinned;
 
     if (newPinned) {
-      // Pinning: convert page coordinates to viewport coordinates
       const viewportX = position.x - window.scrollX;
       const viewportY = position.y - window.scrollY;
       setPosition({ x: viewportX, y: viewportY });
       setPinned(true);
-      db.notes.update(note.id, { pinned: true, x: viewportX, y: viewportY });
+      updateData({ pinned: true, x: viewportX, y: viewportY });
       onUndoableAction?.({
         undo: async () => {
-          // Restore to page coords (re-add current scroll offset at undo time)
           const pageX = viewportX + window.scrollX;
           const pageY = viewportY + window.scrollY;
-          await db.notes.update(note.id, { pinned: false, x: pageX, y: pageY });
+          const current = getNoteData(annotation);
+          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: false, x: pageX, y: pageY }) });
         },
         redo: async () => {
-          await db.notes.update(note.id, { pinned: true, x: viewportX, y: viewportY });
+          const current = getNoteData(annotation);
+          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: true, x: viewportX, y: viewportY }) });
         },
       });
     } else {
-      // Unpinning: convert viewport coordinates to page coordinates
       const pageX = position.x + window.scrollX;
       const pageY = position.y + window.scrollY;
       setPosition({ x: pageX, y: pageY });
       setPinned(false);
-      db.notes.update(note.id, { pinned: false, x: pageX, y: pageY });
+      updateData({ pinned: false, x: pageX, y: pageY });
       onUndoableAction?.({
         undo: async () => {
-          // Restore to viewport coords (subtract current scroll offset at undo time)
           const vpX = pageX - window.scrollX;
           const vpY = pageY - window.scrollY;
-          await db.notes.update(note.id, { pinned: true, x: vpX, y: vpY });
+          const current = getNoteData(annotation);
+          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: true, x: vpX, y: vpY }) });
         },
         redo: async () => {
-          await db.notes.update(note.id, { pinned: false, x: pageX, y: pageY });
+          const current = getNoteData(annotation);
+          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: false, x: pageX, y: pageY }) });
         },
       });
     }
-  }, [pinned, position, note.id, onUndoableAction]);
+  }, [pinned, position, annotation, onUndoableAction, updateData]);
 
-  // Custom drag handler — uses page-relative or viewport-relative coordinates depending on pin state
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startMouseX = e.clientX;
@@ -114,10 +119,10 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
 
       setPosition(current => {
         if (current.x !== startX || current.y !== startY) {
-          db.notes.update(note.id, { x: current.x, y: current.y });
+          updateData({ x: current.x, y: current.y });
           onUndoableAction?.({
-            undo: async () => { await db.notes.update(note.id, { x: startX, y: startY }); },
-            redo: async () => { await db.notes.update(note.id, { x: current.x, y: current.y }); },
+            undo: async () => { updateData({ x: startX, y: startY }); },
+            redo: async () => { updateData({ x: current.x, y: current.y }); },
           });
         }
         return current;
@@ -126,9 +131,8 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [position, note.id, onUndoableAction]);
+  }, [position, annotation.id, onUndoableAction, updateData]);
 
-  // Custom resize handler
   const handleResizeStart = useCallback((e: React.MouseEvent, corner: string) => {
     e.stopPropagation();
     e.preventDefault();
@@ -158,10 +162,10 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
       document.removeEventListener('mouseup', onMouseUp);
 
       setSize(current => {
-        db.notes.update(note.id, { width: current.width, height: current.height });
+        updateData({ width: current.width, height: current.height });
         onUndoableAction?.({
-          undo: async () => { await db.notes.update(note.id, { width: startW, height: startH }); },
-          redo: async () => { await db.notes.update(note.id, { width: current.width, height: current.height }); },
+          undo: async () => { updateData({ width: startW, height: startH }); },
+          redo: async () => { updateData({ width: current.width, height: current.height }); },
         });
         return current;
       });
@@ -169,7 +173,7 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [size, note.id, onUndoableAction]);
+  }, [size, annotation.id, onUndoableAction, updateData]);
 
   return (
     <div
@@ -182,12 +186,12 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
         top: position.y,
         width: size.width,
         height: size.height,
-        backgroundColor: note.color || '#fef08a',
+        backgroundColor: annotation.color || '#fef08a',
         pointerEvents: 'auto',
         zIndex: pinned ? 10000 : 10,
       }}
     >
-      {/* Drag handle with pin button */}
+      {/* Drag handle with pin + privacy buttons */}
       <div
         onMouseDown={handleDragStart}
         className="h-5 w-full cursor-grab active:cursor-grabbing bg-black/5 hover:bg-black/10 transition-colors flex items-center px-1"
@@ -205,12 +209,22 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
             <Pin size={11} strokeWidth={2} />
           )}
         </button>
+        <div className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity ml-auto mr-5">
+          <PrivacyToggle
+            compact
+            value={privacy}
+            onChange={(level) => {
+              setPrivacy(level);
+              db.annotations.update(annotation.id, { privacy: level, syncStatus: 'pending', updatedAt: Math.floor(Date.now() / 1000) });
+            }}
+          />
+        </div>
       </div>
 
       {/* Delete button */}
       <button
         onClick={async () => {
-          const action = await deleteNote(note.id);
+          const action = await deleteAnnotation(annotation.id);
           onUndoableAction?.(action);
         }}
         className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center rounded-bl-md bg-black/0 hover:bg-black/20 text-slate-800 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity cursor-pointer z-10"
@@ -238,14 +252,14 @@ export default function AnnotationCard({ note, onUndoableAction }: Props) {
             const newText = text;
             if (oldText !== newText) {
               onUndoableAction?.({
-                undo: async () => { await db.notes.update(note.id, { text: oldText }); },
-                redo: async () => { await db.notes.update(note.id, { text: newText }); },
+                undo: async () => { updateData({ text: oldText }); },
+                redo: async () => { updateData({ text: newText }); },
               });
             }
           }}
           className="w-full h-full bg-transparent resize-none outline-none text-slate-800 placeholder:text-slate-800/50 text-sm leading-relaxed"
           placeholder="Type a note..."
-          autoFocus={!note.text}
+          autoFocus={!noteData.text}
         />
       </div>
 

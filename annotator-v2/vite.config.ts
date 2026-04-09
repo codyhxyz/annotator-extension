@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     webExtension({
       manifest: "public/manifest.json",
-      additionalInputs: ["src/feed/index.html"],
+      additionalInputs: ["src/feed/index.html", "src/auth/index.html"],
     }),
   ],
   build: {

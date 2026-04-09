@@ -10,11 +10,8 @@ import {
   Layers,
   Globe,
 } from 'lucide-react';
-import { db, type StrokePath, type StickyNote as StickyNoteType, type HighlightRange } from '../store/db';
+import { db, type Annotation, type AnnotationType, getNoteData, getHighlightData } from '../store/db';
 
-// ---------- types ----------
-
-type AnnotationType = 'stroke' | 'note' | 'highlight';
 type FilterType = 'all' | 'highlights' | 'notes' | 'drawings';
 
 interface FeedItem {
@@ -26,43 +23,36 @@ interface FeedItem {
   pageTitle?: string;
   favicon?: string;
   pageSection?: string;
-  /** Display text for the item */
   label: string;
 }
 
-// ---------- helpers ----------
-
 function hostnameFromUrl(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
+  try { return new URL(url).hostname; } catch { return url; }
 }
 
-function toFeedItem(item: StrokePath | StickyNoteType | HighlightRange, type: AnnotationType): FeedItem {
+function toFeedItem(ann: Annotation): FeedItem {
   let label: string;
-  switch (type) {
+  switch (ann.type) {
     case 'note':
-      label = (item as StickyNoteType).text || 'Empty note';
+      label = getNoteData(ann).text || 'Empty note';
       break;
-    case 'highlight':
-      label = (item as HighlightRange).serializedRange || 'Highlight';
+    case 'highlight': {
+      const hd = getHighlightData(ann);
+      try {
+        const parsed = JSON.parse(hd.serializedRange);
+        label = parsed?.quote?.exact || 'Highlight';
+      } catch { label = 'Highlight'; }
       break;
+    }
     case 'stroke':
-      label = `Drawing on ${(item as StrokePath).pageTitle || hostnameFromUrl(item.url)}`;
+      label = `Drawing on ${ann.pageTitle || hostnameFromUrl(ann.url)}`;
       break;
   }
   return {
-    id: item.id,
-    type,
-    url: item.url,
-    timestamp: item.timestamp,
-    color: item.color,
-    pageTitle: (item as any).pageTitle,
-    favicon: (item as any).favicon,
-    pageSection: (item as any).pageSection,
-    label,
+    id: ann.id, type: ann.type, url: ann.url,
+    timestamp: ann.timestamp, color: ann.color,
+    pageTitle: ann.pageTitle, favicon: ann.favicon,
+    pageSection: ann.pageSection, label,
   };
 }
 
@@ -98,29 +88,19 @@ const typeIcon: Record<AnnotationType, typeof Pen> = {
   note: StickyNote,
 };
 
-// ---------- component ----------
-
 export default function Feed() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [search, setSearch] = useState('');
 
-  const strokes = useLiveQuery(() => db.strokes.toArray()) ?? [];
-  const notes = useLiveQuery(() => db.notes.toArray()) ?? [];
-  const highlights = useLiveQuery(() => db.highlights.toArray()) ?? [];
+  const annotations = useLiveQuery(() => db.annotations.toArray()) ?? [];
 
   const items = useMemo(() => {
-    let merged: FeedItem[] = [
-      ...strokes.map((s) => toFeedItem(s, 'stroke')),
-      ...notes.map((n) => toFeedItem(n, 'note')),
-      ...highlights.map((h) => toFeedItem(h, 'highlight')),
-    ];
+    let merged = annotations.map(toFeedItem);
 
-    // filter by type
     if (filter === 'highlights') merged = merged.filter((i) => i.type === 'highlight');
     if (filter === 'notes') merged = merged.filter((i) => i.type === 'note');
     if (filter === 'drawings') merged = merged.filter((i) => i.type === 'stroke');
 
-    // filter by search
     if (search.trim()) {
       const q = search.toLowerCase();
       merged = merged.filter(
@@ -132,12 +112,10 @@ export default function Feed() {
       );
     }
 
-    // sort newest first
     merged.sort((a, b) => b.timestamp - a.timestamp);
     return merged;
-  }, [strokes, notes, highlights, filter, search]);
+  }, [annotations, filter, search]);
 
-  // group by date
   const grouped = useMemo(() => {
     const groups: { label: string; items: FeedItem[] }[] = [];
     const order = ['Today', 'Yesterday', 'This Week', 'Older'];
@@ -161,11 +139,10 @@ export default function Feed() {
     { id: 'drawings', label: 'Drawings' },
   ];
 
-  const totalCount = strokes.length + notes.length + highlights.length;
+  const totalCount = annotations.length;
 
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
-      {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
         <div className="max-w-3xl mx-auto px-6 py-5">
           <div className="flex items-center gap-3 mb-4">
@@ -180,7 +157,6 @@ export default function Feed() {
             </div>
           </div>
 
-          {/* Search */}
           <div className="relative mb-3">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -192,7 +168,6 @@ export default function Feed() {
             />
           </div>
 
-          {/* Filter bar */}
           <div className="flex gap-1">
             {filters.map((f) => (
               <button
@@ -211,7 +186,6 @@ export default function Feed() {
         </div>
       </header>
 
-      {/* Body */}
       <main className="max-w-3xl mx-auto px-6 py-6">
         {totalCount === 0 ? (
           <EmptyState />
@@ -249,45 +223,28 @@ export default function Feed() {
   );
 }
 
-// ---------- FeedRow ----------
-
 function FeedRow({ item }: { item: FeedItem }) {
   const Icon = typeIcon[item.type];
   const displayTitle = item.pageTitle || hostnameFromUrl(item.url);
 
-  const handleClick = () => {
-    chrome.tabs.create({ url: item.url });
-  };
-
   return (
     <motion.button
       layout
-      onClick={handleClick}
+      onClick={() => chrome.tabs.create({ url: item.url })}
       className="w-full flex items-start gap-3 p-3 rounded-xl text-left hover:bg-slate-50 transition-colors group"
     >
-      {/* Type icon with color indicator */}
       <div className="relative mt-0.5 flex-shrink-0">
-        <div
-          className="p-2 rounded-lg"
-          style={{ backgroundColor: item.color + '20' }}
-        >
+        <div className="p-2 rounded-lg" style={{ backgroundColor: item.color + '20' }}>
           <Icon size={16} style={{ color: item.color }} />
         </div>
       </div>
 
-      {/* Content */}
       <div className="flex-1 min-w-0">
         <p className="text-sm text-slate-900 leading-snug line-clamp-2">{item.label}</p>
         <div className="flex items-center gap-2 mt-1">
           {item.favicon ? (
-            <img
-              src={item.favicon}
-              alt=""
-              className="w-3.5 h-3.5 rounded-sm"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
+            <img src={item.favicon} alt="" className="w-3.5 h-3.5 rounded-sm"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
           ) : (
             <Globe size={12} className="text-slate-400" />
           )}
@@ -302,15 +259,12 @@ function FeedRow({ item }: { item: FeedItem }) {
         </div>
       </div>
 
-      {/* Open in tab */}
       <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
         <ExternalLink size={14} className="text-slate-400" />
       </div>
     </motion.button>
   );
 }
-
-// ---------- EmptyState ----------
 
 function EmptyState() {
   return (

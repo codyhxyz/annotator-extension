@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { db, type StrokePath } from './store/db';
+import { db, type Annotation, getStrokeData, getNoteData, getHighlightData } from './store/db';
 import CommandPalette from './components/CommandPalette';
 import ContextualPanel from './components/ContextualPanel';
 import OverlayCanvas from './components/OverlayCanvas';
@@ -7,10 +7,11 @@ import AnnotationCard from './components/AnnotationCard';
 import useHighlighterTool from './tools/useHighlighterTool';
 import SearchPanel from './components/SearchPanel';
 import useUndoRedo from './hooks/useUndoRedo';
-import { addNote, moveStroke } from './store/undoable';
+import { addAnnotation, updateAnnotation } from './store/undoable';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCursorForTool } from './utils/cursors';
 import { getPageContext } from './utils/pageContext';
+import { watchAuthState, startAutoSync, stopAutoSync, connect, disconnect } from './sync';
 
 type ToolWithColor = 'pen' | 'highlighter' | 'note';
 const TOOLS_WITH_COLOR: ToolWithColor[] = ['pen', 'highlighter', 'note'];
@@ -18,11 +19,10 @@ const TOOLS_WITH_COLOR: ToolWithColor[] = ['pen', 'highlighter', 'note'];
 export default function App() {
   const [isActive, setIsActive] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
-  const [selectedStroke, setSelectedStroke] = useState<StrokePath | null>(null);
+  const [selectedStroke, setSelectedStroke] = useState<Annotation | null>(null);
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Per-tool colors
   const [toolColors, setToolColors] = useState<Record<ToolWithColor, string>>({
     pen: '#ef4444',
     highlighter: '#fde047',
@@ -35,17 +35,34 @@ export default function App() {
 
   const url = window.location.href;
 
+  useEffect(() => {
+    if (!isActive) return;
+    const unwatchAuth = watchAuthState((signedIn) => {
+      if (signedIn) {
+        startAutoSync();
+        connect(url);
+      } else {
+        stopAutoSync();
+        disconnect();
+      }
+    });
+    return () => {
+      unwatchAuth();
+      stopAutoSync();
+      disconnect();
+    };
+  }, [url, isActive]);
+
   const notes = useLiveQuery(
-    () => db.notes.where({ url }).toArray(),
+    () => db.annotations.where('[url+type]').equals([url, 'note']).toArray(),
     [url]
   );
 
   const strokes = useLiveQuery(
-    () => db.strokes.where({ url }).toArray(),
+    () => db.annotations.where('[url+type]').equals([url, 'stroke']).toArray(),
     [url]
   );
 
-  // Highlighter tool — always renders marks, captures selection only when active
   useHighlighterTool({
     isActive: isActive && activeTool === 'highlighter',
     color: toolColors.highlighter,
@@ -77,7 +94,6 @@ export default function App() {
         return;
       }
 
-      // Tool shortcuts — only when overlay is active
       if (isActive) {
         switch (e.key) {
           case 'd': setActiveTool('pen'); break;
@@ -103,46 +119,86 @@ export default function App() {
     return () => window.removeEventListener('annotator-toggle', handler);
   }, [toggle]);
 
-  // Note placement with page-relative coordinates
+  // ann:// scroll-to-annotation handler
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const { annotationId } = (e as CustomEvent).detail;
+      if (!annotationId) return;
+
+      const ann = await db.annotations.get(annotationId);
+      if (!ann) return;
+
+      if (ann.type === 'note') {
+        const data = getNoteData(ann);
+        window.scrollTo({ top: data.y - 100, behavior: 'smooth' });
+        return;
+      }
+
+      if (ann.type === 'highlight') {
+        const { deserializeRange } = await import('./utils/rangeSerializer');
+        const data = getHighlightData(ann);
+        const range = deserializeRange(data.serializedRange);
+        if (range) {
+          const rect = range.getBoundingClientRect();
+          window.scrollTo({ top: rect.top + window.scrollY - 100, behavior: 'smooth' });
+
+          // Flash the highlight mark if it exists
+          const mark = document.querySelector(`[data-annotator-highlight-id="${annotationId}"]`);
+          if (mark) {
+            (mark as HTMLElement).style.outline = '2px solid #3b82f6';
+            setTimeout(() => { (mark as HTMLElement).style.outline = ''; }, 2000);
+          }
+        }
+        return;
+      }
+
+      if (ann.type === 'stroke') {
+        const data = getStrokeData(ann);
+        if (data.points?.length > 0) {
+          const minY = Math.min(...data.points.map((p: { y: number }) => p.y));
+          window.scrollTo({ top: minY - 100, behavior: 'smooth' });
+        }
+      }
+    };
+
+    window.addEventListener('annotator-scroll-to', handler);
+    return () => window.removeEventListener('annotator-scroll-to', handler);
+  }, []);
+
   const handleContainerClick = async (e: React.MouseEvent) => {
     if (!isActive) return;
 
     if (activeTool === 'note') {
       const noteY = e.clientY + window.scrollY;
       const context = getPageContext(noteY);
-      const noteData = {
+      const action = await addAnnotation({
         id: crypto.randomUUID(),
         url,
-        text: '',
-        x: e.clientX + window.scrollX,
-        y: noteY,
-        width: 250,
-        height: 120,
+        type: 'note',
+        data: JSON.stringify({ text: '', x: e.clientX + window.scrollX, y: noteY, width: 250, height: 120 }),
         color: toolColors.note,
         timestamp: Date.now(),
         ...context,
-      };
-      const action = await addNote(noteData);
+      });
       push(action);
       setActiveTool('pointer');
       return;
     }
 
-    // Pointer mode: hit-test strokes
     if (activeTool === 'pointer') {
       const clickX = e.clientX + window.scrollX;
       const clickY = e.clientY + window.scrollY;
       const hitRadius = 10;
 
       if (strokes) {
-        for (const stroke of strokes) {
+        for (const ann of strokes) {
+          const stroke = getStrokeData(ann);
           for (const pt of stroke.points) {
             const dx = pt.x - clickX;
             const dy = pt.y - clickY;
             if (dx * dx + dy * dy <= hitRadius * hitRadius) {
-              setSelectedStroke(stroke);
+              setSelectedStroke(ann);
               dragStartRef.current = { x: clickX, y: clickY };
-              // Compute bounding box
               let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
               for (const p of stroke.points) {
                 if (p.x < minX) minX = p.x;
@@ -157,7 +213,6 @@ export default function App() {
           }
         }
       }
-      // Clicked empty space — deselect
       setSelectedStroke(null);
       setSelectionBox(null);
     }
@@ -172,10 +227,11 @@ export default function App() {
     const dy = endY - dragStartRef.current.y;
 
     if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
-      const newPoints = selectedStroke.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
-      const action = await moveStroke(selectedStroke.id, newPoints);
+      const oldData = getStrokeData(selectedStroke);
+      const newPoints = oldData.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+      const newData = JSON.stringify({ ...oldData, points: newPoints });
+      const action = await updateAnnotation(selectedStroke.id, { data: newData });
       push(action);
-      // Update selection box position
       if (selectionBox) {
         setSelectionBox({ ...selectionBox, x: selectionBox.x + dx, y: selectionBox.y + dy });
       }
@@ -188,22 +244,14 @@ export default function App() {
     setToolColors((prev) => ({ ...prev, [tool]: color }));
   };
 
-  // Determine pointer-events for container
-  // Only 'note' mode needs the full overlay to catch placement clicks.
-  // Pointer mode is passthrough — individual notes have their own pointer-events.
   const containerPointerEvents =
     isActive && activeTool === 'note'
       ? 'pointer-events-auto'
       : 'pointer-events-none';
 
-  // Cursor for container (used in note/pointer modes where canvas has pointer-events: none)
   const cursorOptions = activeTool ? { color: toolColors[activeTool as ToolWithColor] } : undefined;
   const containerCursor = isActive && activeTool ? getCursorForTool(activeTool, cursorOptions) : 'default';
 
-  // Set cursor on document.documentElement as a fallback that covers the ENTIRE page.
-  // This eliminates deadzones: gaps in the shadow DOM overlay, highlighter mode
-  // (which has no pointer-events anywhere), and height-collapse issues.
-  // Child elements (links, buttons) naturally override with their own cursors.
   useEffect(() => {
     if (!isActive || !activeTool) {
       document.documentElement.style.cursor = '';
@@ -231,7 +279,6 @@ export default function App() {
         onUndoableAction={push}
       />
 
-      {/* Selection indicator for pointer mode */}
       {isActive && selectionBox && (
         <div
           style={{
@@ -248,11 +295,10 @@ export default function App() {
         />
       )}
 
-      {isActive && notes?.map((note) => (
-        <AnnotationCard key={note.id} note={note} onUndoableAction={push} />
+      {isActive && notes?.map((ann) => (
+        <AnnotationCard key={ann.id} annotation={ann} onUndoableAction={push} />
       ))}
 
-      {/* Contextual panel for color/width when pen, highlighter, or note is active */}
       {showContextualPanel && (
         <ContextualPanel
           activeTool={activeTool!}
@@ -276,6 +322,7 @@ export default function App() {
       {showSearch && (
         <SearchPanel onClose={() => setShowSearch(false)} />
       )}
+
     </div>
   );
 }

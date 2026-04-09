@@ -5,61 +5,136 @@ export interface Point {
   y: number;
 }
 
-export interface StrokePath {
+export type AnnotationType = 'stroke' | 'note' | 'highlight';
+export type PrivacyLevel = 'private' | 'open';
+export type SyncStatus = 'pending' | 'synced';
+
+/** Unified annotation — one table, one schema. Type-specific payload in `data` blob. */
+export interface Annotation {
   id: string;
-  url: string; // The URL of the page this belongs to
+  url: string;
+  type: AnnotationType;
+  privacy: PrivacyLevel;
+  syncStatus: SyncStatus;
+  data: string;           // JSON blob — type-specific payload
   color: string;
-  strokeWidth: number;
-  points: Point[];
-  timestamp: number;
+  timestamp: number;      // creation time (ms)
+  updatedAt: number;      // LWW clock (unix seconds)
+  deletedAt?: number;
   pageTitle: string;
   favicon: string;
   pageSection?: string;
+  userId?: string;        // set for remote annotations
+  tags?: string[];
 }
 
-export interface StickyNote {
-  id: string;
-  url: string;
+/** Input type — sync fields injected automatically, not required from callers. */
+export type AnnotationInput = Omit<Annotation, 'privacy' | 'syncStatus' | 'updatedAt' | 'deletedAt' | 'userId'>;
+
+// --- Typed data helpers ---
+
+export interface StrokeData {
+  points: Point[];
+  strokeWidth: number;
+}
+
+export interface NoteData {
   text: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  color: string;
-  timestamp: number;
-  pageTitle: string;
-  favicon: string;
-  pageSection?: string;
   pinned?: boolean;
 }
 
-export interface HighlightRange {
-  id: string;
-  url: string;
-  serializedRange: string; // We'll need a robust way to serialize DOM ranges
-  color: string;
-  timestamp: number;
-  pageTitle: string;
-  favicon: string;
-  pageSection?: string;
+export interface HighlightData {
+  serializedRange: string;
 }
 
+export function getStrokeData(ann: Annotation): StrokeData {
+  return JSON.parse(ann.data);
+}
+
+export function getNoteData(ann: Annotation): NoteData {
+  return JSON.parse(ann.data);
+}
+
+export function getHighlightData(ann: Annotation): HighlightData {
+  return JSON.parse(ann.data);
+}
+
+// --- Database ---
+
 const db = new Dexie('WebAnnotatorDB') as Dexie & {
-  strokes: EntityTable<StrokePath, 'id'>, 
-  notes: EntityTable<StickyNote, 'id'>, 
-  highlights: EntityTable<HighlightRange, 'id'>
+  annotations: EntityTable<Annotation, 'id'>;
+  // Legacy tables kept for migration path
+  strokes: EntityTable<Record<string, unknown>, 'id'>;
+  notes: EntityTable<Record<string, unknown>, 'id'>;
+  highlights: EntityTable<Record<string, unknown>, 'id'>;
 };
 
-db.version(1).stores({
-  strokes: 'id, url', // index by id and url for quick retrieval
-  notes: 'id, url',
-  highlights: 'id, url'
+// Legacy versions — keep so Dexie can upgrade through them
+db.version(1).stores({ strokes: 'id, url', notes: 'id, url', highlights: 'id, url' });
+db.version(2).stores({ strokes: 'id, url', notes: 'id, url', highlights: 'id, url' });
+db.version(3).stores({
+  strokes: 'id, url, syncStatus, updatedAt',
+  notes: 'id, url, syncStatus, updatedAt',
+  highlights: 'id, url, syncStatus, updatedAt',
 });
 
-db.version(2).stores({
-  strokes: 'id, url',
-  notes: 'id, url',
-  highlights: 'id, url'
+// v4: unified table + migrate legacy data
+db.version(4).stores({
+  annotations: 'id, url, type, syncStatus, updatedAt, *tags, [url+type]',
+  strokes: 'id, url, syncStatus, updatedAt',
+  notes: 'id, url, syncStatus, updatedAt',
+  highlights: 'id, url, syncStatus, updatedAt',
+}).upgrade(async tx => {
+  const annotations = tx.table('annotations');
+  const now = Math.floor(Date.now() / 1000);
+
+  // Migrate strokes
+  for (const s of await tx.table('strokes').toArray()) {
+    await annotations.add({
+      id: s.id, url: s.url, type: 'stroke',
+      privacy: s.privacy || 'private', syncStatus: s.syncStatus || 'pending',
+      data: JSON.stringify({ points: s.points, strokeWidth: s.strokeWidth }),
+      color: s.color, timestamp: s.timestamp, updatedAt: s.updatedAt || now,
+      pageTitle: s.pageTitle || '', favicon: s.favicon || '',
+      pageSection: s.pageSection, tags: [],
+    });
+  }
+
+  // Migrate notes
+  for (const n of await tx.table('notes').toArray()) {
+    await annotations.add({
+      id: n.id, url: n.url, type: 'note',
+      privacy: n.privacy || 'private', syncStatus: n.syncStatus || 'pending',
+      data: JSON.stringify({ text: n.text, x: n.x, y: n.y, width: n.width, height: n.height, pinned: n.pinned }),
+      color: n.color, timestamp: n.timestamp, updatedAt: n.updatedAt || now,
+      pageTitle: n.pageTitle || '', favicon: n.favicon || '',
+      pageSection: n.pageSection, tags: [],
+    });
+  }
+
+  // Migrate highlights
+  for (const h of await tx.table('highlights').toArray()) {
+    await annotations.add({
+      id: h.id, url: h.url, type: 'highlight',
+      privacy: h.privacy || 'private', syncStatus: h.syncStatus || 'pending',
+      data: JSON.stringify({ serializedRange: h.serializedRange }),
+      color: h.color, timestamp: h.timestamp, updatedAt: h.updatedAt || now,
+      pageTitle: h.pageTitle || '', favicon: h.favicon || '',
+      pageSection: h.pageSection, tags: [],
+    });
+  }
+});
+
+// v5: drop legacy tables
+db.version(5).stores({
+  annotations: 'id, url, type, syncStatus, updatedAt, *tags, [url+type]',
+  strokes: null,
+  notes: null,
+  highlights: null,
 });
 
 export { db };

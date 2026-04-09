@@ -1,132 +1,113 @@
-import { db, type StrokePath, type StickyNote, type HighlightRange } from '../store/db';
+import { db, type Annotation, getStrokeData, getNoteData, getHighlightData } from '../store/db';
+import { downloadFile } from './jsonl';
 
 interface ExportOptions {
   url?: string;
-  types?: string[]; // 'strokes' | 'notes' | 'highlights'
 }
 
-interface PageGroup {
-  url: string;
-  pageTitle?: string;
-  favicon?: string;
-  strokes: StrokePath[];
-  notes: StickyNote[];
-  highlights: HighlightRange[];
-}
-
+/**
+ * Export as canonical Markdown with YAML frontmatter.
+ * One file per URL when exporting all, or one document for a single URL.
+ */
 export async function exportAsMarkdown(options?: ExportOptions): Promise<string> {
-  const types = options?.types ?? ['strokes', 'notes', 'highlights'];
-
-  const [strokes, notes, highlights] = await Promise.all([
-    types.includes('strokes')
-      ? (options?.url ? db.strokes.where('url').equals(options.url).toArray() : db.strokes.toArray())
-      : Promise.resolve([]),
-    types.includes('notes')
-      ? (options?.url ? db.notes.where('url').equals(options.url).toArray() : db.notes.toArray())
-      : Promise.resolve([]),
-    types.includes('highlights')
-      ? (options?.url ? db.highlights.where('url').equals(options.url).toArray() : db.highlights.toArray())
-      : Promise.resolve([]),
-  ]);
+  const all = options?.url
+    ? await db.annotations.where('url').equals(options.url).toArray()
+    : await db.annotations.toArray();
 
   // Group by URL
-  const groupMap = new Map<string, PageGroup>();
-
-  const getGroup = (url: string, pageTitle?: string, favicon?: string): PageGroup => {
-    let group = groupMap.get(url);
+  const groups = new Map<string, { pageTitle: string; favicon: string; items: Annotation[] }>();
+  for (const ann of all) {
+    let group = groups.get(ann.url);
     if (!group) {
-      group = { url, strokes: [], notes: [], highlights: [] };
-      groupMap.set(url, group);
+      group = { pageTitle: ann.pageTitle || ann.url, favicon: ann.favicon, items: [] };
+      groups.set(ann.url, group);
     }
-    if (pageTitle) group.pageTitle = pageTitle;
-    if (favicon) group.favicon = favicon;
-    return group;
-  };
-
-  for (const s of strokes) getGroup(s.url, s.pageTitle, s.favicon).strokes.push(s);
-  for (const n of notes) getGroup(n.url, n.pageTitle, n.favicon).notes.push(n);
-  for (const h of highlights) getGroup(h.url, h.pageTitle, h.favicon).highlights.push(h);
-
-  if (groupMap.size === 0) {
-    return '# My Annotations\n\nNo annotations found.\n';
+    if (ann.pageTitle) group.pageTitle = ann.pageTitle;
+    if (ann.favicon) group.favicon = ann.favicon;
+    group.items.push(ann);
   }
 
-  const date = new Date().toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
+  if (groups.size === 0) return '---\ntitle: My Annotations\n---\n\nNo annotations found.\n';
+
+  // Sort pages by most recent
+  const pages = [...groups.entries()].sort((a, b) => {
+    const latest = (items: Annotation[]) => Math.max(...items.map(i => i.timestamp), 0);
+    return latest(b[1].items) - latest(a[1].items);
   });
 
-  const lines: string[] = [
-    '# My Annotations',
-    `Exported on ${date}`,
-    '',
-  ];
+  const docs: string[] = [];
 
-  // Sort pages by most recent annotation
-  const pages = [...groupMap.values()].sort((a, b) => {
-    const latestTs = (g: PageGroup) => Math.max(
-      ...g.strokes.map(s => s.timestamp),
-      ...g.notes.map(n => n.timestamp),
-      ...g.highlights.map(h => h.timestamp),
-      0,
-    );
-    return latestTs(b) - latestTs(a);
-  });
+  for (const [url, group] of pages) {
+    const allTags = new Set<string>();
+    for (const ann of group.items) {
+      if (ann.tags) ann.tags.forEach(t => allTags.add(t));
+    }
+    const latestTs = Math.max(...group.items.map(i => i.timestamp));
 
-  for (const page of pages) {
-    const title = page.pageTitle || page.url;
-    lines.push(`## ${title}`);
-    if (page.pageTitle) lines.push(`${page.url}`);
-    lines.push('');
+    // YAML frontmatter
+    const frontmatter = [
+      '---',
+      `url: "${url}"`,
+      `title: "${group.pageTitle.replace(/"/g, '\\"')}"`,
+      `annotated: ${new Date(latestTs).toISOString()}`,
+      `type: annotation`,
+    ];
+    if (allTags.size > 0) {
+      frontmatter.push(`tags: [${[...allTags].map(t => `"${t}"`).join(', ')}]`);
+    }
+    frontmatter.push('---', '');
 
-    if (page.highlights.length > 0) {
-      lines.push('### Highlights');
-      for (const h of page.highlights.sort((a, b) => a.timestamp - b.timestamp)) {
-        const section = h.pageSection ? ` (${h.pageSection})` : '';
-        lines.push(`- Highlight \u2014 *${h.color}*${section}`);
+    const lines: string[] = [...frontmatter];
+    lines.push(`# ${group.pageTitle}`, `[Source](${url})`, '');
+
+    const highlights = group.items.filter(a => a.type === 'highlight').sort((a, b) => a.timestamp - b.timestamp);
+    const notes = group.items.filter(a => a.type === 'note').sort((a, b) => a.timestamp - b.timestamp);
+    const strokes = group.items.filter(a => a.type === 'stroke').sort((a, b) => a.timestamp - b.timestamp);
+
+    if (highlights.length > 0) {
+      lines.push('## Highlights', '');
+      for (const h of highlights) {
+        const data = getHighlightData(h);
+        try {
+          const parsed = JSON.parse(data.serializedRange);
+          if (parsed?.quote?.exact) {
+            lines.push(`> ${parsed.quote.exact}`);
+            if (h.pageSection) lines.push(`> — *${h.pageSection}*`);
+            lines.push('');
+            continue;
+          }
+        } catch { /* fallback */ }
+        lines.push(`- Highlight — *${h.color}*`, '');
+      }
+    }
+
+    if (notes.length > 0) {
+      lines.push('## Notes', '');
+      for (const n of notes) {
+        const data = getNoteData(n);
+        lines.push(`- ${data.text || '(empty note)'}`);
       }
       lines.push('');
     }
 
-    if (page.notes.length > 0) {
-      lines.push('### Notes');
-      for (const n of page.notes.sort((a, b) => a.timestamp - b.timestamp)) {
-        const text = n.text || '(empty note)';
-        lines.push(`- ${text} \u2014 *position (${Math.round(n.x)}, ${Math.round(n.y)})*`);
+    if (strokes.length > 0) {
+      lines.push('## Drawings', '');
+      for (const s of strokes) {
+        const data = getStrokeData(s);
+        lines.push(`- Drawing (${data.points.length} points, ${s.color})`);
       }
       lines.push('');
     }
 
-    if (page.strokes.length > 0) {
-      lines.push('### Drawings');
-      for (const s of page.strokes.sort((a, b) => a.timestamp - b.timestamp)) {
-        lines.push(`- Drawing with ${s.points.length} points \u2014 *${s.color}, width ${s.strokeWidth}*`);
-      }
-      lines.push('');
-    }
-
-    lines.push('---');
-    lines.push('');
+    docs.push(lines.join('\n'));
   }
 
-  return lines.join('\n');
+  return docs.join('\n---\n\n');
 }
 
 export function downloadMarkdown(content: string, filename?: string): void {
   const date = new Date().toISOString().slice(0, 10);
-  const name = filename ?? `annotations-${date}.md`;
-  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  // Cleanup
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-    a.remove();
-  }, 100);
+  downloadFile(content, filename ?? `annotations-${date}.md`, 'text/markdown;charset=utf-8');
 }
 
 export async function exportAndDownload(options?: ExportOptions): Promise<void> {

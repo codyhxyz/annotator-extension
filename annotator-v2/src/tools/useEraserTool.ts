@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { db } from "../store/db";
+import { db, getStrokeData } from "../store/db";
 import { useLiveQuery } from "dexie-react-hooks";
-import { deleteStrokes } from "../store/undoable";
+import { deleteAnnotations } from "../store/undoable";
 import type { UndoAction } from "../hooks/useUndoRedo";
 
 interface Props {
@@ -16,7 +16,7 @@ export default function useEraserTool({ isActive, canvasRef, eraserRadius = 20, 
   const url = window.location.href;
 
   const existingStrokes = useLiveQuery(
-    () => db.strokes.where({ url }).toArray(),
+    () => db.annotations.where('[url+type]').equals([url, 'stroke']).toArray(),
     [url]
   );
 
@@ -33,19 +33,20 @@ export default function useEraserTool({ isActive, canvasRef, eraserRadius = 20, 
       const ey = clientY + window.scrollY;
       const idsToDelete: string[] = [];
 
-      for (const stroke of existingStrokes) {
+      for (const ann of existingStrokes) {
+        const stroke = getStrokeData(ann);
         for (const pt of stroke.points) {
           const dx = pt.x - ex;
           const dy = pt.y - ey;
           if (dx * dx + dy * dy <= radiusSq) {
-            idsToDelete.push(stroke.id);
-            break; // One hit is enough to mark for deletion
+            idsToDelete.push(ann.id);
+            break;
           }
         }
       }
 
       if (idsToDelete.length > 0) {
-        const action = await deleteStrokes(idsToDelete);
+        const action = await deleteAnnotations(idsToDelete);
         onUndoableAction?.(action);
       }
     };

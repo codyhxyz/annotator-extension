@@ -1,0 +1,27 @@
+name = "annotator-backend"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+ENVIRONMENT = "development"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "annotator-db"
+database_id = "bdef7f42-f1a0-48d7-90d0-2ff7a75549df"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "20c88a1fb03c466481a8862b3dc7820d"
+
+[durable_objects]
+bindings = [
+  { name = "PAGE_ROOM", class_name = "PageRoom" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PageRoom"]
+
+[triggers]
+crons = ["0 3 * * *"]

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { db, type Point } from "../store/db";
+import { db, type Point, getStrokeData } from "../store/db";
 import { useLiveQuery } from "dexie-react-hooks";
-import { addStroke } from "../store/undoable";
+import { addAnnotation } from "../store/undoable";
 import { getPageContext } from "../utils/pageContext";
 import type { UndoAction } from "../hooks/useUndoRedo";
 
@@ -20,7 +20,7 @@ export default function usePenTool({ isActive, canvasRef, color, strokeWidth, re
   const url = window.location.href;
 
   const existingStrokes = useLiveQuery(
-    () => db.strokes.where({ url }).toArray(),
+    () => db.annotations.where('[url+type]').equals([url, 'stroke']).toArray(),
     [url]
   );
 
@@ -32,10 +32,11 @@ export default function usePenTool({ isActive, canvasRef, color, strokeWidth, re
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    existingStrokes.forEach(stroke => {
+    existingStrokes.forEach(ann => {
+      const stroke = getStrokeData(ann);
       if (stroke.points.length < 2) return;
       ctx.beginPath();
-      ctx.strokeStyle = stroke.color;
+      ctx.strokeStyle = ann.color;
       ctx.lineWidth = stroke.strokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -86,16 +87,15 @@ export default function usePenTool({ isActive, canvasRef, color, strokeWidth, re
       if (currentPathRef.current.length > 1) {
         const minY = Math.min(...currentPathRef.current.map(p => p.y));
         const context = getPageContext(minY);
-        const strokeData = {
+        const action = await addAnnotation({
           id: crypto.randomUUID(),
           url,
+          type: 'stroke',
+          data: JSON.stringify({ points: currentPathRef.current, strokeWidth }),
           color,
-          strokeWidth,
-          points: currentPathRef.current,
           timestamp: Date.now(),
           ...context,
-        };
-        const action = await addStroke(strokeData);
+        });
         onUndoableAction?.(action);
       }
       currentPathRef.current = [];
