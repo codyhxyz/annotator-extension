@@ -1,6 +1,11 @@
 /**
- * WebSocket client for per-page Durable Object rooms.
- * Handles presence (who's on the page) and live annotation broadcasts.
+ * Per-page Durable Object WebSocket — presence + live broadcasts.
+ *
+ * Reconnect is unbounded. The only reason to stop is a conscious
+ * `disconnect()` (user toggled off, signed out, navigated). Backoff is
+ * exponential with jitter, capped at 30s. The auth token is re-read on
+ * every connect attempt so token rotation propagates without manual
+ * intervention.
  */
 
 import { getAuthToken } from './api';
@@ -25,29 +30,30 @@ type Listener = (msg: RealtimeMessage) => void;
 let ws: WebSocket | null = null;
 let currentUrl: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 3;
+let attempts = 0;
+let stopped = true;
 const listeners = new Set<Listener>();
 
 function getWsBase(): string {
   return API_BASE.replace(/^http/, 'ws');
 }
 
-export function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+/** Exponential backoff w/ jitter, cap 30s. attempts is 0-based. */
+function backoffDelay(n: number): number {
+  const base = Math.min(30_000, 1000 * Math.pow(2, n));
+  const jitter = Math.random() * 500;
+  return base + jitter;
 }
 
-export function connect(pageUrl: string) {
+export function subscribe(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+function openSocket(pageUrl: string) {
+  // Always re-read — if the token was refreshed, we pick up the new value.
   const token = getAuthToken();
   if (!token) return;
-
-  // Already connected to this page
-  if (ws && currentUrl === pageUrl && ws.readyState === WebSocket.OPEN) return;
-
-  disconnect();
-  currentUrl = pageUrl;
-  reconnectAttempts = 0;
 
   const wsUrl = `${getWsBase()}/ws/page?url=${encodeURIComponent(pageUrl)}&token=${encodeURIComponent(token)}`;
   ws = new WebSocket(wsUrl);
@@ -55,47 +61,39 @@ export function connect(pageUrl: string) {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data) as RealtimeMessage;
-      for (const listener of listeners) {
-        listener(msg);
-      }
-    } catch {
-      // ignore malformed messages
-    }
+      for (const l of listeners) l(msg);
+    } catch { /* ignore malformed */ }
   };
 
-  ws.onopen = () => {
-    reconnectAttempts = 0;
-  };
+  ws.onopen = () => { attempts = 0; };
 
   ws.onclose = () => {
-    if (currentUrl === pageUrl && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      reconnectAttempts++;
-      const delay = Math.min(5000 * reconnectAttempts, 15000);
-      reconnectTimer = setTimeout(() => connect(pageUrl), delay);
-    }
+    ws = null;
+    if (stopped || currentUrl !== pageUrl) return;
+    const delay = backoffDelay(attempts++);
+    reconnectTimer = setTimeout(() => openSocket(pageUrl), delay);
   };
 
-  ws.onerror = () => {
-    ws?.close();
-  };
+  ws.onerror = () => { ws?.close(); };
+}
+
+export function connect(pageUrl: string) {
+  if (ws && currentUrl === pageUrl && ws.readyState === WebSocket.OPEN) return;
+  disconnect();
+  stopped = false;
+  currentUrl = pageUrl;
+  attempts = 0;
+  openSocket(pageUrl);
 }
 
 export function disconnect() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  if (ws) {
-    currentUrl = null;
-    ws.close();
-    ws = null;
-  }
+  stopped = true;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (ws) { currentUrl = null; ws.close(); ws = null; }
 }
 
 export function send(msg: object) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
 export function isConnected(): boolean {

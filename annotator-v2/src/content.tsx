@@ -2,6 +2,16 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import css from "./index.css?inline";
+import { performSync, watchAuthState } from "./sync";
+
+// Always-on: run sync on alarm ticks regardless of overlay visibility.
+// This is the content script boot, not gated on mountApp().
+let signedIn = false;
+watchAuthState((s) => { signedIn = s; });
+window.addEventListener("annotator-sync-tick", () => {
+  if (!signedIn) return;
+  performSync().catch(err => console.warn('[annotator] sync failed:', err));
+});
 
 let mounted = false;
 
@@ -56,7 +66,7 @@ function mountApp() {
   );
 }
 
-// Listen for messages from background script — mount lazily on first toggle
+// Listen for messages from background — mount lazily on first toggle
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "TOGGLE_OVERLAY") {
     mountApp();
@@ -69,5 +79,11 @@ chrome.runtime.onMessage.addListener((msg) => {
       detail: { annotationId: msg.annotationId },
     }));
     window.dispatchEvent(new CustomEvent("annotator-toggle"));
+  }
+
+  // Alarm-driven sync tick from the background SW. Sync runs without
+  // requiring the overlay to be open.
+  if (msg.type === "SYNC_TICK") {
+    window.dispatchEvent(new CustomEvent("annotator-sync-tick"));
   }
 });

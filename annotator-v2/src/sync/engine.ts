@@ -8,9 +8,7 @@ import { sync as apiSync, type SyncChange } from './api';
 
 const DEVICE_ID_KEY = 'annotator_device_id';
 const CURSOR_KEY = 'annotator_sync_cursor';
-const SYNC_INTERVAL_MS = 30_000;
 
-let syncTimer: ReturnType<typeof setInterval> | null = null;
 let syncing = false;
 
 function getDeviceId(): string {
@@ -138,21 +136,6 @@ export async function performSync(): Promise<{ pushed: number; pulled: number }>
     return { pushed: dirtyChanges.length, pulled: response.serverChanges.length };
   } finally {
     syncing = false;
-  }
-}
-
-export function startAutoSync() {
-  if (syncTimer) return;
-  syncTimer = setInterval(() => {
-    performSync().catch(err => console.warn('[sync] auto-sync failed:', err));
-  }, SYNC_INTERVAL_MS);
-  performSync().catch(err => console.warn('[sync] initial sync failed:', err));
-}
-
-export function stopAutoSync() {
-  if (syncTimer) {
-    clearInterval(syncTimer);
-    syncTimer = null;
   }
 }
 

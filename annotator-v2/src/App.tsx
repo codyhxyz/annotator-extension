@@ -7,7 +7,7 @@ import useUndoRedo from './hooks/useUndoRedo';
 import { storage } from './store/storage';
 import { getCursorForTool } from './utils/cursors';
 import { currentPageKey } from './utils/normalizeUrl';
-import { watchAuthState, startAutoSync, stopAutoSync, connect, disconnect } from './sync';
+import { watchAuthState, connect, disconnect } from './sync';
 import { tools, findTool, findToolByHotkey } from './tools/registry';
 import { createNoteAt } from './tools/note';
 import type { ToolContext } from './tools/types';
@@ -31,12 +31,13 @@ export default function App() {
   const activeTool = findTool(activeToolId);
 
   useEffect(() => {
+    // Realtime presence is UI-bound; sync runs in the background regardless.
     if (!isActive) return;
     const unwatchAuth = watchAuthState((signedIn) => {
-      if (signedIn) { startAutoSync(); connect(pageKey); }
-      else { stopAutoSync(); disconnect(); }
+      if (signedIn) connect(pageKey);
+      else disconnect();
     });
-    return () => { unwatchAuth(); stopAutoSync(); disconnect(); };
+    return () => { unwatchAuth(); disconnect(); };
   }, [pageKey, isActive]);
 
   const toggle = useCallback(() => setIsActive(p => !p), []);
