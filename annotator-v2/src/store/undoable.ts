@@ -37,9 +37,16 @@ export async function deleteAnnotation(id: string): Promise<UndoAction> {
 export async function deleteAnnotations(ids: string[]): Promise<UndoAction> {
   const snapshots = (await db.annotations.bulkGet(ids)).filter((a): a is Annotation => a !== undefined);
   await db.annotations.bulkDelete(ids);
+  for (const s of snapshots) emit('annotation.deleted', { annotationId: s.id, annotation: s });
   return {
-    undo: async () => { await db.annotations.bulkAdd(snapshots); },
-    redo: async () => { await db.annotations.bulkDelete(ids); },
+    undo: async () => {
+      await db.annotations.bulkAdd(snapshots);
+      for (const s of snapshots) emit('annotation.created', { annotation: s });
+    },
+    redo: async () => {
+      await db.annotations.bulkDelete(ids);
+      for (const s of snapshots) emit('annotation.deleted', { annotationId: s.id, annotation: s });
+    },
   };
 }
 
@@ -65,8 +72,16 @@ export async function updateAnnotation(id: string, changes: Partial<Annotation>)
 export async function clearAll(url: string): Promise<UndoAction> {
   const snapshots = await db.annotations.where({ url }).toArray();
   await db.annotations.where({ url }).delete();
+  for (const s of snapshots) emit('annotation.deleted', { annotationId: s.id, annotation: s });
   return {
-    undo: async () => { if (snapshots.length > 0) await db.annotations.bulkAdd(snapshots); },
-    redo: async () => { await db.annotations.where({ url }).delete(); },
+    undo: async () => {
+      if (snapshots.length === 0) return;
+      await db.annotations.bulkAdd(snapshots);
+      for (const s of snapshots) emit('annotation.created', { annotation: s });
+    },
+    redo: async () => {
+      await db.annotations.where({ url }).delete();
+      for (const s of snapshots) emit('annotation.deleted', { annotationId: s.id, annotation: s });
+    },
   };
 }

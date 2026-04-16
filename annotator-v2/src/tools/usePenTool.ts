@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { db, type Point, getStrokeData } from "../store/db";
-import { useLiveQuery } from "dexie-react-hooks";
+import { type Point, getStrokeData } from "../store/db";
+import { useAnnotations } from "../hooks/useAnnotations";
 import { addAnnotation } from "../store/undoable";
 import { getPageContext } from "../utils/pageContext";
 import { currentPageKey } from "../utils/normalizeUrl";
@@ -20,10 +20,7 @@ export default function usePenTool({ isActive, canvasRef, color, strokeWidth, re
   const currentPathRef = useRef<Point[]>([]);
   const url = currentPageKey();
 
-  const existingStrokes = useLiveQuery(
-    () => db.annotations.where('[url+type]').equals([url, 'stroke']).toArray(),
-    [url]
-  );
+  const existingStrokes = useAnnotations({ url, type: 'stroke' });
 
   // Re-draw all saved strokes
   useEffect(() => {

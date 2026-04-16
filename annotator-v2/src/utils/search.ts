@@ -41,21 +41,25 @@ function matchesQuery(text: string, query: string): boolean {
 
 export type FilterType = 'highlight' | 'note' | 'drawing';
 
+const FILTER_TO_TYPE: Record<FilterType, Annotation['type']> = {
+  highlight: 'highlight',
+  note: 'note',
+  drawing: 'stroke',
+};
+
 export async function searchAnnotations(
   query: string,
   filter?: FilterType | null,
 ): Promise<SearchResult[]> {
-  let all = await db.annotations.toArray();
-
-  // Map filter to annotation type
-  if (filter === 'highlight') all = all.filter(a => a.type === 'highlight');
-  else if (filter === 'note') all = all.filter(a => a.type === 'note');
-  else if (filter === 'drawing') all = all.filter(a => a.type === 'stroke');
+  // Index-backed fetch: when a filter is set, hit the `type` index instead
+  // of scanning every annotation.
+  const source = filter
+    ? db.annotations.where('type').equals(FILTER_TO_TYPE[filter])
+    : db.annotations.orderBy('updatedAt').reverse();
+  const all = await source.toArray();
 
   const q = query.trim();
   const results: SearchResult[] = [];
-
-  // Group strokes by URL
   const strokesByUrl = new Map<string, Annotation[]>();
 
   for (const ann of all) {
@@ -100,12 +104,10 @@ export async function searchAnnotations(
 }
 
 export async function getAnnotationCounts(): Promise<{ highlight: number; note: number; drawing: number }> {
-  const all = await db.annotations.toArray();
-  let highlight = 0, note = 0, drawing = 0;
-  for (const a of all) {
-    if (a.type === 'highlight') highlight++;
-    else if (a.type === 'note') note++;
-    else if (a.type === 'stroke') drawing++;
-  }
+  const [highlight, note, drawing] = await Promise.all([
+    db.annotations.where('type').equals('highlight').count(),
+    db.annotations.where('type').equals('note').count(),
+    db.annotations.where('type').equals('stroke').count(),
+  ]);
   return { highlight, note, drawing };
 }

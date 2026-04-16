@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { db, type Annotation, getStrokeData, getNoteData, getHighlightData } from './store/db';
+import { type Annotation, getStrokeData, getNoteData, getHighlightData } from './store/db';
+import { storage } from './store/storage';
 import CommandPalette from './components/CommandPalette';
 import ContextualPanel from './components/ContextualPanel';
 import OverlayCanvas from './components/OverlayCanvas';
@@ -7,8 +8,8 @@ import AnnotationCard from './components/AnnotationCard';
 import useHighlighterTool from './tools/useHighlighterTool';
 import SearchPanel from './components/SearchPanel';
 import useUndoRedo from './hooks/useUndoRedo';
+import { useAnnotations } from './hooks/useAnnotations';
 import { addAnnotation, updateAnnotation } from './store/undoable';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { getCursorForTool } from './utils/cursors';
 import { getPageContext } from './utils/pageContext';
 import { currentPageKey } from './utils/normalizeUrl';
@@ -53,15 +54,8 @@ export default function App() {
     };
   }, [url, isActive]);
 
-  const notes = useLiveQuery(
-    () => db.annotations.where('[url+type]').equals([url, 'note']).toArray(),
-    [url]
-  );
-
-  const strokes = useLiveQuery(
-    () => db.annotations.where('[url+type]').equals([url, 'stroke']).toArray(),
-    [url]
-  );
+  const notes = useAnnotations({ url, type: 'note' });
+  const strokes = useAnnotations({ url, type: 'stroke' });
 
   useHighlighterTool({
     isActive: isActive && activeTool === 'highlighter',
@@ -125,7 +119,7 @@ export default function App() {
       const { annotationId } = (e as CustomEvent).detail;
       if (!annotationId) return;
 
-      const ann = await db.annotations.get(annotationId);
+      const ann = await storage.get(annotationId);
       if (!ann) return;
 
       if (ann.type === 'note') {

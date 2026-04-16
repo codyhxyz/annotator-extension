@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { db, type Annotation, type PrivacyLevel, getNoteData } from '../store/db';
-import { deleteAnnotation } from '../store/undoable';
+import { deleteAnnotation, updateAnnotation } from '../store/undoable';
 import { Pin, PinOff } from 'lucide-react';
 import PrivacyToggle from './PrivacyToggle';
 import type { UndoAction } from '../hooks/useUndoRedo';
@@ -213,9 +213,10 @@ export default function AnnotationCard({ annotation, onUndoableAction }: Props) 
           <PrivacyToggle
             compact
             value={privacy}
-            onChange={(level) => {
+            onChange={async (level) => {
               setPrivacy(level);
-              db.annotations.update(annotation.id, { privacy: level, syncStatus: 'pending', updatedAt: Math.floor(Date.now() / 1000) });
+              const action = await updateAnnotation(annotation.id, { privacy: level });
+              onUndoableAction?.(action);
             }}
           />
         </div>

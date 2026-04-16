@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { db, getHighlightData } from "../store/db";
-import { useLiveQuery } from "dexie-react-hooks";
+import { getHighlightData } from "../store/db";
+import { useAnnotations } from "../hooks/useAnnotations";
 import { serializeRange, deserializeRange, isInsideShadowDOM } from "../utils/rangeSerializer";
 import { addAnnotation, deleteAnnotation } from "../store/undoable";
 import { getPageContext } from "../utils/pageContext";
@@ -18,10 +18,7 @@ const HIGHLIGHT_ATTR = 'data-annotator-highlight-id';
 export default function useHighlighterTool({ isActive, color, onUndoableAction }: Props) {
   const url = currentPageKey();
 
-  const highlights = useLiveQuery(
-    () => db.annotations.where('[url+type]').equals([url, 'highlight']).toArray(),
-    [url]
-  );
+  const highlights = useAnnotations({ url, type: 'highlight' });
 
   // ── Rendering: inject <mark> elements into real page DOM ──
   useEffect(() => {
