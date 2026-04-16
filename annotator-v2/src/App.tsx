@@ -3,6 +3,7 @@ import CommandPalette from './components/CommandPalette';
 import ContextualPanel from './components/ContextualPanel';
 import OverlayCanvas from './components/OverlayCanvas';
 import SearchPanel from './components/SearchPanel';
+import HighlightMenu from './components/HighlightMenu';
 import useUndoRedo from './hooks/useUndoRedo';
 import { storage } from './store/storage';
 import { getCursorForTool } from './utils/cursors';
@@ -189,6 +190,8 @@ export default function App() {
       )}
 
       {showSearch && <SearchPanel onClose={() => setShowSearch(false)} />}
+
+      <HighlightMenu onUndoableAction={push} />
     </div>
   );
 }

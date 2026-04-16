@@ -1,8 +1,8 @@
-import { useEffect } from "react";
-import { getHighlightData } from "../store/db";
+import { useEffect, useRef } from "react";
+import { getHighlightData, type Annotation } from "../store/db";
 import { useAnnotations } from "../hooks/useAnnotations";
 import { serializeRange, deserializeRange, isInsideShadowDOM } from "../utils/rangeSerializer";
-import { addAnnotation, deleteAnnotation } from "../store/undoable";
+import { addAnnotation } from "../store/undoable";
 import { getPageContext } from "../utils/pageContext";
 import { currentPageKey } from "../utils/normalizeUrl";
 import type { UndoAction } from "../hooks/useUndoRedo";
@@ -17,106 +17,55 @@ const HIGHLIGHT_ATTR = 'data-annotator-highlight-id';
 
 export default function useHighlighterTool({ isActive, color, onUndoableAction }: Props) {
   const url = currentPageKey();
-
   const highlights = useAnnotations({ url, type: 'highlight' });
 
-  // ── Rendering: inject <mark> elements into real page DOM ──
+  // Stable ref so the renderer's deps don't retrigger on push identity change.
+  const onActionRef = useRef(onUndoableAction);
+  useEffect(() => { onActionRef.current = onUndoableAction; }, [onUndoableAction]);
+
+  // Diff-based rendering: only add marks for new highlights, only remove
+  // marks whose highlight is gone, only recolor changed ones. The old
+  // implementation cleanup-and-reinjected every time `highlights`
+  // changed and flickered every undo.
   useEffect(() => {
-    cleanupAllMarks();
+    if (!highlights) return;
 
-    if (!highlights || highlights.length === 0) return;
+    const wantById = new Map<string, Annotation>();
+    for (const h of highlights) wantById.set(h.id, h);
 
-    const resolved: { id: string; color: string; nodes: { node: Text; startOffset: number; endOffset: number }[] }[] = [];
-
-    for (const hl of highlights) {
-      try {
-        const hlData = getHighlightData(hl);
-        const range = deserializeRange(hlData.serializedRange);
-        if (!range) continue;
-
-        const walker = document.createTreeWalker(
-          range.commonAncestorContainer,
-          NodeFilter.SHOW_TEXT,
-          {
-            acceptNode: (node) =>
-              range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
-          }
-        );
-
-        const nodes: { node: Text; startOffset: number; endOffset: number }[] = [];
-        let n: Node | null;
-        while ((n = walker.nextNode())) {
-          const textNode = n as Text;
-          let sOff = 0;
-          let eOff = textNode.length;
-          if (textNode === range.startContainer) sOff = range.startOffset;
-          if (textNode === range.endContainer) eOff = range.endOffset;
-          if (sOff < eOff) nodes.push({ node: textNode, startOffset: sOff, endOffset: eOff });
+    // Remove marks whose annotation is gone.
+    const existingMarks = document.querySelectorAll<HTMLElement>(`[${HIGHLIGHT_ATTR}]`);
+    const seen = new Set<string>();
+    existingMarks.forEach(mark => {
+      const id = mark.getAttribute(HIGHLIGHT_ATTR)!;
+      const want = wantById.get(id);
+      if (!want) {
+        unwrapMark(mark);
+      } else {
+        seen.add(id);
+        if (mark.style.backgroundColor !== want.color) {
+          mark.style.backgroundColor = want.color;
         }
-
-        if (nodes.length > 0) resolved.push({ id: hl.id, color: hl.color, nodes });
-      } catch {
-        // XPath no longer valid — skip
       }
+    });
+
+    // Inject marks for annotations that don't yet have a rendered mark.
+    for (const h of highlights) {
+      if (seen.has(h.id)) continue;
+      try {
+        const range = deserializeRange(getHighlightData(h).serializedRange);
+        if (range) injectMark(range, h.id, h.color);
+      } catch { /* XPath no longer valid — skip */ }
     }
 
-    const ops: { node: Text; startOffset: number; endOffset: number; id: string; color: string }[] = [];
-    for (const r of resolved) {
-      for (const n of r.nodes) {
-        ops.push({ ...n, id: r.id, color: r.color });
-      }
-    }
+    return () => {
+      document.querySelectorAll<HTMLElement>(`[${HIGHLIGHT_ATTR}]`).forEach(unwrapMark);
+    };
+  }, [highlights]);
 
-    ops.reverse();
-
-    for (const { node: textNode, startOffset, endOffset, id, color: hlColor } of ops) {
-      const parent = textNode.parentNode;
-      if (!parent) continue;
-
-      const fullText = textNode.textContent || '';
-      if (startOffset >= fullText.length) continue;
-
-      const mark = document.createElement('mark');
-      mark.setAttribute(HIGHLIGHT_ATTR, id);
-      mark.style.backgroundColor = hlColor;
-      mark.style.color = 'inherit';
-      mark.style.opacity = '0.5';
-      mark.style.transition = 'opacity 0.2s';
-      mark.style.cursor = 'pointer';
-      mark.style.borderRadius = '2px';
-      mark.style.padding = '0';
-      mark.style.margin = '0';
-      mark.textContent = fullText.substring(startOffset, endOffset);
-
-      mark.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        deleteAnnotation(id).then((action) => {
-          onUndoableAction?.(action);
-        });
-      });
-      mark.addEventListener('mouseenter', () => { mark.style.opacity = '0.7'; });
-      mark.addEventListener('mouseleave', () => { mark.style.opacity = '0.5'; });
-
-      const frag = document.createDocumentFragment();
-      if (startOffset > 0) {
-        frag.appendChild(document.createTextNode(fullText.substring(0, startOffset)));
-      }
-      frag.appendChild(mark);
-      if (endOffset < fullText.length) {
-        frag.appendChild(document.createTextNode(fullText.substring(endOffset)));
-      }
-
-      parent.replaceChild(frag, textNode);
-    }
-
-    return () => cleanupAllMarks();
-  }, [highlights, onUndoableAction]);
-
-  // ── Selection capture: only when highlighter is the active tool ──
+  // Selection capture
   useEffect(() => {
     if (!isActive) return;
-
     let didMouseDown = false;
 
     const onMouseDown = (e: MouseEvent) => {
@@ -128,17 +77,14 @@ export default function useHighlighterTool({ isActive, color, onUndoableAction }
 
       requestAnimationFrame(() => {
         const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        if (!sel.isCollapsed) return;
+        if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
         try {
           sel.modify('extend', 'forward', 'word');
           sel.modify('extend', 'backward', 'word');
           sel.collapseToStart();
           sel.modify('move', 'backward', 'word');
           sel.modify('extend', 'forward', 'word');
-        } catch {
-          // sel.modify not supported in some contexts
-        }
+        } catch { /* unsupported */ }
       });
     };
 
@@ -149,7 +95,6 @@ export default function useHighlighterTool({ isActive, color, onUndoableAction }
       requestAnimationFrame(() => {
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-
         const range = sel.getRangeAt(0);
 
         if (isInsideShadowDOM(range.startContainer) || isInsideShadowDOM(range.endContainer)) return;
@@ -161,21 +106,15 @@ export default function useHighlighterTool({ isActive, color, onUndoableAction }
         if (!text) return;
 
         const rangeRect = range.getBoundingClientRect();
-        const highlightY = rangeRect.top + window.scrollY;
-        const context = getPageContext(highlightY);
+        const context = getPageContext(rangeRect.top + window.scrollY);
 
         serializeRange(range).then(serialized => {
           addAnnotation({
-            id: crypto.randomUUID(),
-            url,
-            type: 'highlight',
+            id: crypto.randomUUID(), url, type: 'highlight',
             data: JSON.stringify({ serializedRange: serialized }),
-            color,
-            timestamp: Date.now(),
+            color, timestamp: Date.now(),
             ...context,
-          }).then((action) => {
-            onUndoableAction?.(action);
-          });
+          }).then(a => onActionRef.current?.(a));
         });
 
         sel.removeAllRanges();
@@ -188,7 +127,84 @@ export default function useHighlighterTool({ isActive, color, onUndoableAction }
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mouseup', onMouseUp);
     };
-  }, [isActive, color, url, onUndoableAction]);
+  }, [isActive, color, url]);
+}
+
+// ── DOM helpers ───────────────────────────────────────────────────────
+
+function injectMark(range: Range, id: string, color: string) {
+  const walker = document.createTreeWalker(
+    range.commonAncestorContainer,
+    NodeFilter.SHOW_TEXT,
+    { acceptNode: node => range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT },
+  );
+
+  const hits: { node: Text; startOffset: number; endOffset: number }[] = [];
+  let n: Node | null;
+  while ((n = walker.nextNode())) {
+    const t = n as Text;
+    let s = 0, e = t.length;
+    if (t === range.startContainer) s = range.startOffset;
+    if (t === range.endContainer) e = range.endOffset;
+    if (s < e) hits.push({ node: t, startOffset: s, endOffset: e });
+  }
+
+  // Reverse so earlier splits don't invalidate later nodes.
+  for (let i = hits.length - 1; i >= 0; i--) {
+    wrapOne(hits[i]!, id, color);
+  }
+}
+
+function wrapOne(
+  { node, startOffset, endOffset }: { node: Text; startOffset: number; endOffset: number },
+  id: string, color: string,
+) {
+  const parent = node.parentNode;
+  if (!parent) return;
+
+  const fullText = node.textContent || '';
+  if (startOffset >= fullText.length) return;
+
+  const mark = document.createElement('mark');
+  mark.setAttribute(HIGHLIGHT_ATTR, id);
+  mark.style.backgroundColor = color;
+  mark.style.color = 'inherit';
+  mark.style.opacity = '0.5';
+  mark.style.transition = 'opacity 0.2s';
+  mark.style.cursor = 'pointer';
+  mark.style.borderRadius = '2px';
+  mark.style.padding = '0';
+  mark.style.margin = '0';
+  mark.textContent = fullText.substring(startOffset, endOffset);
+
+  mark.addEventListener('click', (e) => {
+    e.stopPropagation(); e.preventDefault();
+    const rect = mark.getBoundingClientRect();
+    window.dispatchEvent(new CustomEvent('annotator-highlight-menu', {
+      detail: {
+        id,
+        x: rect.left + rect.width / 2,
+        y: rect.bottom + window.scrollY,
+      },
+    }));
+  });
+  mark.addEventListener('mouseenter', () => { mark.style.opacity = '0.7'; });
+  mark.addEventListener('mouseleave', () => { mark.style.opacity = '0.5'; });
+
+  const frag = document.createDocumentFragment();
+  if (startOffset > 0) frag.appendChild(document.createTextNode(fullText.substring(0, startOffset)));
+  frag.appendChild(mark);
+  if (endOffset < fullText.length) frag.appendChild(document.createTextNode(fullText.substring(endOffset)));
+
+  parent.replaceChild(frag, node);
+}
+
+function unwrapMark(mark: Element) {
+  const parent = mark.parentNode;
+  if (!parent) return;
+  while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+  parent.removeChild(mark);
+  parent.normalize();
 }
 
 function expandRangeToWordBoundaries(range: Range) {
@@ -209,15 +225,4 @@ function expandRangeToWordBoundaries(range: Range) {
     while (endOffset < text.length && wordChar.test(text[endOffset]!)) endOffset++;
     range.setEnd(endNode, endOffset);
   }
-}
-
-function cleanupAllMarks() {
-  const marks = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`);
-  marks.forEach((mark) => {
-    const parent = mark.parentNode;
-    if (!parent) return;
-    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-    parent.removeChild(mark);
-    parent.normalize();
-  });
 }

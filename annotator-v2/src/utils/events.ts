@@ -83,14 +83,34 @@ export function exportEventLogAsJsonl(): string {
 }
 
 let logCache: AnnotationEvent[] | null = null;
+let flushScheduled = false;
+
+function scheduleFlush() {
+  if (flushScheduled) return;
+  flushScheduled = true;
+  const schedule =
+    typeof (globalThis as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback === 'function'
+      ? (globalThis as unknown as { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback
+      : (cb: () => void) => setTimeout(cb, 250);
+
+  schedule(() => {
+    flushScheduled = false;
+    if (!logCache) return;
+    try {
+      localStorage.setItem(LOG_KEY, JSON.stringify(logCache));
+    } catch {
+      // localStorage full or unavailable — silently skip
+    }
+  });
+}
 
 function appendToLog(event: AnnotationEvent) {
-  try {
-    if (!logCache) logCache = getEventLog();
-    logCache.push(event);
-    if (logCache.length > MAX_LOG_ENTRIES) logCache = logCache.slice(-MAX_LOG_ENTRIES);
-    localStorage.setItem(LOG_KEY, JSON.stringify(logCache));
-  } catch {
-    // localStorage full or unavailable — silently skip
-  }
+  // Drag-heavy flows fire annotation.updated every few pixels of motion.
+  // Stringifying the cache and hitting localStorage on every event was
+  // a main-thread tax during notes drags; defer the write to an idle
+  // callback so it's coalesced.
+  if (!logCache) logCache = getEventLog();
+  logCache.push(event);
+  if (logCache.length > MAX_LOG_ENTRIES) logCache = logCache.slice(-MAX_LOG_ENTRIES);
+  scheduleFlush();
 }

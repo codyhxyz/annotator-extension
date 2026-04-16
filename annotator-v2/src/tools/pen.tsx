@@ -17,7 +17,6 @@ export const penTool: Tool = {
       canvasRef: ctx.canvasRef,
       color: ctx.color,
       strokeWidth: ctx.strokeWidth,
-      redrawKey: 0,
       onUndoableAction: ctx.push,
     });
     return null;
