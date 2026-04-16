@@ -34,15 +34,17 @@ export default function usePenTool({ isActive, canvasRef, color, strokeWidth, re
 
     existingStrokes.forEach(ann => {
       const stroke = getStrokeData(ann);
-      if (stroke.points.length < 2) return;
+      const first = stroke.points[0];
+      if (!first || stroke.points.length < 2) return;
       ctx.beginPath();
       ctx.strokeStyle = ann.color;
       ctx.lineWidth = stroke.strokeWidth;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      ctx.moveTo(first.x, first.y);
       for (let i = 1; i < stroke.points.length; i++) {
-        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        const pt = stroke.points[i]!;
+        ctx.lineTo(pt.x, pt.y);
       }
       ctx.stroke();
     });

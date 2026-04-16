@@ -8,14 +8,16 @@ interface Props {
   compact?: boolean;
 }
 
-const levels: { id: PrivacyLevel; icon: typeof Lock; label: string; desc: string }[] = [
-  { id: 'private', icon: Lock, label: 'Private', desc: 'Only you' },
-  { id: 'open', icon: Globe, label: 'Open', desc: 'Everyone can see & vote' },
-];
+const levels = [
+  { id: 'private' as const, icon: Lock, label: 'Private', desc: 'Only you' },
+  { id: 'open' as const, icon: Globe, label: 'Open', desc: 'Everyone can see & vote' },
+] as const;
+const DEFAULT_LEVEL = levels[0];
+type Level = (typeof levels)[number];
 
 export default function PrivacyToggle({ value, onChange, compact }: Props) {
   const [showDropdown, setShowDropdown] = useState(false);
-  const current = levels.find(l => l.id === value) || levels[0];
+  const current: Level = levels.find(l => l.id === value) ?? DEFAULT_LEVEL;
   const Icon = current.icon;
 
   if (compact) {

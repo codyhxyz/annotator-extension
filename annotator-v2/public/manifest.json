@@ -3,17 +3,24 @@
   "name": "Web Annotator v2",
   "version": "1.0",
   "description": "Interaction layer for the web",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
   "action": {
-    "default_title": "Web Annotator v2"
+    "default_title": "Web Annotator"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/content.tsx"]
+      "js": ["src/content.tsx"],
+      "run_at": "document_idle"
     }
   ],
   "background": {
-    "service_worker": "src/background.ts"
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "externally_connectable": {
+    "ids": [],
+    "matches": ["http://localhost:*/*", "http://127.0.0.1:*/*"]
   }
 }

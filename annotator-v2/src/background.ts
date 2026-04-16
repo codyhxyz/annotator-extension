@@ -39,9 +39,4 @@ chrome.runtime.onMessage.addListener((msg) => {
     });
   }
 
-  // Lookup annotation by ID — returns its URL and data
-  if (msg.type === "LOOKUP_ANNOTATION") {
-    // Content script handles this since it has Dexie access
-    return false;
-  }
 });

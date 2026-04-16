@@ -200,7 +200,7 @@ function expandRangeToWordBoundaries(range: Range) {
   let startOffset = range.startOffset;
   if (startNode.nodeType === Node.TEXT_NODE) {
     const text = startNode.textContent || '';
-    while (startOffset > 0 && wordChar.test(text[startOffset - 1])) startOffset--;
+    while (startOffset > 0 && wordChar.test(text[startOffset - 1]!)) startOffset--;
     range.setStart(startNode, startOffset);
   }
 
@@ -208,7 +208,7 @@ function expandRangeToWordBoundaries(range: Range) {
   let endOffset = range.endOffset;
   if (endNode.nodeType === Node.TEXT_NODE) {
     const text = endNode.textContent || '';
-    while (endOffset < text.length && wordChar.test(text[endOffset])) endOffset++;
+    while (endOffset < text.length && wordChar.test(text[endOffset]!)) endOffset++;
     range.setEnd(endNode, endOffset);
   }
 }

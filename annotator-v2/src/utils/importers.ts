@@ -33,7 +33,7 @@ export async function importReadwiseCsv(content: string): Promise<{ imported: nu
   const lines = content.split('\n');
   if (lines.length < 2) return { imported: 0 };
 
-  const headers = parseCSVLine(lines[0]);
+  const headers = parseCSVLine(lines[0] ?? '');
   const highlightIdx = headers.indexOf('Highlight');
   const noteIdx = headers.indexOf('Note');
   const titleIdx = headers.indexOf('Book Title');
@@ -43,8 +43,9 @@ export async function importReadwiseCsv(content: string): Promise<{ imported: nu
   const annotations: AnnotationInput[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const cols = parseCSVLine(lines[i]);
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+    const cols = parseCSVLine(line);
     const highlight = cols[highlightIdx] || '';
     const note = cols[noteIdx] || '';
     const title = cols[titleIdx] || '';
@@ -103,15 +104,14 @@ export async function importKindleClippings(content: string): Promise<{ imported
     const lines = entry.trim().split('\n').filter(l => l.trim());
     if (lines.length < 3) continue;
 
-    const titleLine = lines[0].trim();
-    const metaLine = lines[1].trim();
+    const titleLine = lines[0]!.trim();
+    const metaLine = lines[1]!.trim();
     const text = lines.slice(2).join('\n').trim();
 
     if (!text) continue;
 
-    // Parse metadata: "- Your Highlight on page 42 | Location 650-655 | Added on Monday, March 15, 2026 10:30:00 AM"
     const dateMatch = metaLine.match(/Added on (.+)/);
-    const timestamp = dateMatch ? new Date(dateMatch[1]).getTime() : Date.now();
+    const timestamp = dateMatch?.[1] ? new Date(dateMatch[1]).getTime() : Date.now();
 
     const isNote = metaLine.includes('Your Note');
     const url = `kindle://book/${encodeURIComponent(titleLine)}`;
