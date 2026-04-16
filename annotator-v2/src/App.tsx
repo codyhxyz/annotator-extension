@@ -32,9 +32,8 @@ export default function App() {
   const [strokeWidth, setStrokeWidth] = useState(4);
   const [showSearch, setShowSearch] = useState(false);
 
-  const { push } = useUndoRedo();
-
   const url = currentPageKey();
+  const { push } = useUndoRedo(url);
 
   useEffect(() => {
     if (!isActive) return;

@@ -1,53 +1,29 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import {
+  pushAction, undo as undoKey, redo as redoKey,
+  subscribe, canUndo as canUndoKey, canRedo as canRedoKey,
+  type UndoAction,
+} from '../store/undoStore';
 
-export interface UndoAction {
-  undo: () => Promise<void>;
-  redo: () => Promise<void>;
-}
+export type { UndoAction };
 
-const MAX_STACK_SIZE = 50;
+/**
+ * Hook over the module-scoped, per-page undo store.
+ * Subscribes to the stack for `pageKey` and re-renders on change so
+ * `canUndo`/`canRedo` actually track state.
+ */
+export default function useUndoRedo(pageKey: string) {
+  const [, version] = useState(0);
+  const rerender = useCallback(() => version(v => v + 1), []);
 
-export default function useUndoRedo() {
-  const undoStackRef = useRef<UndoAction[]>([]);
-  const redoStackRef = useRef<UndoAction[]>([]);
-  // Counter ref to trigger re-renders when stacks change
-  const versionRef = useRef(0);
-  const forceUpdate = useCallback(() => {
-    versionRef.current++;
-  }, []);
+  useEffect(() => subscribe(pageKey, rerender), [pageKey, rerender]);
 
-  const push = useCallback((action: UndoAction) => {
-    undoStackRef.current.push(action);
-    if (undoStackRef.current.length > MAX_STACK_SIZE) {
-      undoStackRef.current.shift();
-    }
-    redoStackRef.current = [];
-    forceUpdate();
-  }, [forceUpdate]);
+  const push = useCallback((action: UndoAction) => pushAction(pageKey, action), [pageKey]);
+  const undo = useCallback(() => undoKey(pageKey), [pageKey]);
+  const redo = useCallback(() => redoKey(pageKey), [pageKey]);
 
-  const undo = useCallback(async () => {
-    const action = undoStackRef.current.pop();
-    if (!action) return;
-    await action.undo();
-    redoStackRef.current.push(action);
-    forceUpdate();
-  }, [forceUpdate]);
-
-  const redo = useCallback(async () => {
-    const action = redoStackRef.current.pop();
-    if (!action) return;
-    await action.redo();
-    undoStackRef.current.push(action);
-    if (undoStackRef.current.length > MAX_STACK_SIZE) {
-      undoStackRef.current.shift();
-    }
-    forceUpdate();
-  }, [forceUpdate]);
-
-  // Keyboard shortcuts: Cmd+Z = undo, Cmd+Shift+Z = redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip when typing in inputs/textareas/contenteditable
       let active: Element | null = document.activeElement;
       while (active?.shadowRoot?.activeElement) {
         active = active.shadowRoot.activeElement;
@@ -65,11 +41,7 @@ export default function useUndoRedo() {
       if (!isMeta || e.key.toLowerCase() !== 'z') return;
 
       e.preventDefault();
-      if (e.shiftKey) {
-        redo();
-      } else {
-        undo();
-      }
+      if (e.shiftKey) redo(); else undo();
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -80,7 +52,7 @@ export default function useUndoRedo() {
     push,
     undo,
     redo,
-    canUndo: undoStackRef.current.length > 0,
-    canRedo: redoStackRef.current.length > 0,
+    canUndo: canUndoKey(pageKey),
+    canRedo: canRedoKey(pageKey),
   };
 }
