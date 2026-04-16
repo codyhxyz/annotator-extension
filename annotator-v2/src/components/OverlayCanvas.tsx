@@ -1,63 +1,43 @@
-import { useRef, useEffect, useState } from "react";
-import usePenTool from "../tools/usePenTool";
-import useEraserTool from "../tools/useEraserTool";
-import { getCursorForTool } from "../utils/cursors";
-import type { UndoAction } from "../hooks/useUndoRedo";
+import { forwardRef, useEffect } from "react";
 
 interface Props {
   isActive: boolean;
-  activeTool: string | null;
-  penColor?: string;
-  penStrokeWidth?: number;
-  onUndoableAction?: (action: UndoAction) => void;
+  pointerEvents: 'auto' | 'none';
+  cursor: string;
 }
 
-export default function OverlayCanvas({ isActive, activeTool, penColor = '#ef4444', penStrokeWidth = 4, onUndoableAction }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [resizeKey, setResizeKey] = useState(0);
-
-  usePenTool({
-    isActive: isActive && activeTool === 'pen',
-    canvasRef,
-    color: penColor,
-    strokeWidth: penStrokeWidth,
-    redrawKey: resizeKey,
-    onUndoableAction,
-  });
-
-  useEraserTool({
-    isActive: isActive && activeTool === 'eraser',
-    canvasRef,
-    onUndoableAction,
-  });
-
+/**
+ * Thin canvas element. Tools that want to draw consume the forwarded
+ * ref via ToolContext.canvasRef — this component has no tool knowledge.
+ */
+export default forwardRef<HTMLCanvasElement, Props>(function OverlayCanvas(
+  { isActive, pointerEvents, cursor },
+  ref,
+) {
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !isActive) {
-      // Zero out canvas when inactive to free GPU memory
-      if (canvas && canvas.width > 0) {
-        canvas.width = 0;
-        canvas.height = 0;
-      }
+    const canvas = typeof ref === 'function' ? null : ref?.current;
+    if (!canvas) return;
+
+    if (!isActive) {
+      if (canvas.width > 0) { canvas.width = 0; canvas.height = 0; }
       return;
     }
 
+    const dpr = window.devicePixelRatio || 1;
     const resize = () => {
-      const w = Math.max(
-        document.body.scrollWidth,
-        document.documentElement.scrollWidth
-      );
-      const h = Math.max(
-        document.body.scrollHeight,
-        document.documentElement.scrollHeight
-      );
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-        setResizeKey(k => k + 1);
+      const w = Math.max(document.body.scrollWidth, document.documentElement.scrollWidth);
+      const h = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+      const targetW = Math.floor(w * dpr);
+      const targetH = Math.floor(h * dpr);
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     };
-
     resize();
 
     let timer: ReturnType<typeof setTimeout>;
@@ -66,34 +46,19 @@ export default function OverlayCanvas({ isActive, activeTool, penColor = '#ef444
       timer = setTimeout(resize, 200);
     });
     ro.observe(document.body);
-
-    return () => {
-      ro.disconnect();
-      clearTimeout(timer);
-    };
-  }, [isActive]);
-
-  // Highlighter operates on DOM text nodes (mark injection), not canvas
-  const canvasPointerEvents =
-    isActive && (activeTool === 'pen' || activeTool === 'eraser')
-      ? 'auto'
-      : 'none';
-
-  const canvasCursor = isActive && activeTool
-    ? getCursorForTool(activeTool, { color: penColor })
-    : 'default';
+    return () => { ro.disconnect(); clearTimeout(timer); };
+  }, [isActive, ref]);
 
   return (
     <canvas
-      ref={canvasRef}
+      ref={ref}
       style={{
         position: 'absolute',
-        top: 0,
-        left: 0,
+        top: 0, left: 0,
         zIndex: 1,
-        pointerEvents: canvasPointerEvents,
-        cursor: canvasCursor,
+        pointerEvents,
+        cursor,
       }}
     />
   );
-}
+});

@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import type { Tool } from "../tools/types";
 
 const COLOR_SWATCHES = [
   '#ef4444', // red
@@ -17,7 +18,7 @@ const COLOR_SWATCHES = [
 const STROKE_WIDTHS = [2, 4, 8, 14];
 
 interface Props {
-  activeTool: string;
+  activeTool: Tool;
   color: string;
   onColorChange: (color: string) => void;
   strokeWidth?: number;
@@ -32,7 +33,8 @@ export default function ContextualPanel({
   onStrokeWidthChange,
 }: Props) {
   const posRef = useRef<HTMLDivElement>(null);
-  const showStrokeWidths = activeTool === 'pen';
+  const showColors = !!activeTool.takesColor;
+  const showStrokeWidths = !!activeTool.takesStrokeWidth;
 
   // Direct DOM positioning — no React state, zero lag
   useEffect(() => {
@@ -73,7 +75,7 @@ export default function ContextualPanel({
           style={{ cursor: 'default' }}
         >
           {/* Color swatches */}
-          <div className="flex items-center gap-1.5 px-1">
+          {showColors && <div className="flex items-center gap-1.5 px-1">
             {COLOR_SWATCHES.map((swatch) => {
               const isSelected = color === swatch;
               return (
@@ -93,9 +95,9 @@ export default function ContextualPanel({
                 />
               );
             })}
-          </div>
+          </div>}
 
-          {/* Stroke width presets (pen only) */}
+          {/* Stroke width presets */}
           {showStrokeWidths && onStrokeWidthChange && (
             <>
               <div className="w-px h-6 bg-slate-200/50" />

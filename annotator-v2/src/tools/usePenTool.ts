@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Point, getStrokeData } from "../store/db";
 import { useAnnotations } from "../hooks/useAnnotations";
 import { addAnnotation } from "../store/undoable";
@@ -11,16 +11,33 @@ interface Props {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   color: string;
   strokeWidth: number;
-  redrawKey: number;
+  /** Retained for call-site compatibility; internal ResizeObserver now drives redraws. */
+  redrawKey?: number;
   onUndoableAction?: (action: UndoAction) => void;
 }
 
-export default function usePenTool({ isActive, canvasRef, color, strokeWidth, redrawKey, onUndoableAction }: Props) {
+export default function usePenTool({ isActive, canvasRef, color, strokeWidth, onUndoableAction }: Props) {
   const isDrawingRef = useRef(false);
   const currentPathRef = useRef<Point[]>([]);
   const url = currentPageKey();
+  const [epoch, setEpoch] = useState(0);
 
   const existingStrokes = useAnnotations({ url, type: 'stroke' });
+
+  // Canvas-size → epoch bump. Internal so pen doesn't need a redrawKey prop.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let prev = `${canvas.width}x${canvas.height}`;
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const cur = `${canvas.width}x${canvas.height}`;
+      if (cur !== prev) { prev = cur; setEpoch(e => e + 1); }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [canvasRef]);
 
   // Re-draw all saved strokes
   useEffect(() => {
@@ -28,7 +45,8 @@ export default function usePenTool({ isActive, canvasRef, color, strokeWidth, re
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx || !existingStrokes) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
     existingStrokes.forEach(ann => {
       const stroke = getStrokeData(ann);
@@ -46,7 +64,7 @@ export default function usePenTool({ isActive, canvasRef, color, strokeWidth, re
       }
       ctx.stroke();
     });
-  }, [existingStrokes, canvasRef, redrawKey]);
+  }, [existingStrokes, canvasRef, epoch]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

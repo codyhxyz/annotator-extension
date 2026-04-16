@@ -1,22 +1,23 @@
 import { useRef, useEffect } from "react";
-import { Pen, StickyNote, Highlighter, Eraser, Trash2, MousePointer2, Search, Download, Layers } from "lucide-react";
+import { Trash2, Search, Download, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { clearAll } from "../store/undoable";
 import { currentPageKey } from "../utils/normalizeUrl";
 import { exportAndDownload } from "../utils/exportAnnotations";
+import { tools } from "../tools/registry";
 import PresenceIndicator from "./PresenceIndicator";
 import AuthButton from "./AuthButton";
 import type { UndoAction } from "../hooks/useUndoRedo";
 
 interface Props {
-  activeTool: string | null;
+  activeToolId: string | null;
   onSelectTool: (tool: string | null) => void;
   onClose: () => void;
   onUndoableAction?: (action: UndoAction) => void;
   onSearchOpen?: () => void;
 }
 
-export default function CommandPalette({ activeTool, onSelectTool, onClose, onUndoableAction, onSearchOpen }: Props) {
+export default function CommandPalette({ activeToolId, onSelectTool, onClose, onUndoableAction, onSearchOpen }: Props) {
   const posRef = useRef<HTMLDivElement>(null);
 
   // Direct DOM positioning — no React state, zero lag
@@ -36,14 +37,6 @@ export default function CommandPalette({ activeTool, onSelectTool, onClose, onUn
       window.removeEventListener('resize', update);
     };
   }, []);
-
-  const tools = [
-    { id: "pointer", icon: MousePointer2, label: "Cursor" },
-    { id: "pen", icon: Pen, label: "Draw" },
-    { id: "note", icon: StickyNote, label: "Note" },
-    { id: "highlighter", icon: Highlighter, label: "Highlight" },
-    { id: "eraser", icon: Eraser, label: "Eraser" }
-  ];
 
   const currentUrl = currentPageKey();
 
@@ -101,7 +94,7 @@ export default function CommandPalette({ activeTool, onSelectTool, onClose, onUn
           <div className="flex items-center gap-1 pr-4 border-r border-slate-200/50 cursor-grab active:cursor-grabbing">
             {tools.map((t) => {
               const Icon = t.icon;
-              const isActive = activeTool === t.id;
+              const isActive = activeToolId === t.id;
               return (
                 <button
                   key={t.id}
@@ -111,7 +104,7 @@ export default function CommandPalette({ activeTool, onSelectTool, onClose, onUn
                       ? "bg-blue-500 text-white shadow-md scale-105"
                       : "hover:bg-slate-100/50 text-slate-600 hover:text-slate-900 hover:scale-105"
                   }`}
-                  title={t.label}
+                  title={`${t.label} (${t.hotkey})`}
                 >
                   <Icon size={20} className={isActive ? "stroke-[2.5px]" : "stroke-2"} />
                 </button>
