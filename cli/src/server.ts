@@ -12,10 +12,13 @@ export function startServer(port: number = 7717) {
     const url = new URL(req.url || '/', `http://localhost:${port}`);
     const path = url.pathname;
 
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // CORS — only allow local and extension origins
+    const origin = req.headers['origin'];
+    if (origin && isAllowedOrigin(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     const json = (data: unknown, status = 200) => {
@@ -122,6 +125,13 @@ export function startServer(port: number = 7717) {
     console.log(`  GET  /export?format=jsonl`);
     console.log(`  GET  /health`);
   });
+}
+
+function isAllowedOrigin(origin: string): boolean {
+  return (
+    origin.startsWith('chrome-extension://') ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+  );
 }
 
 function readBody(req: import('http').IncomingMessage): Promise<Record<string, unknown>> {

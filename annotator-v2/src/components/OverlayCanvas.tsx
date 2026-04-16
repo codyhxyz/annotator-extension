@@ -73,7 +73,7 @@ export default function OverlayCanvas({ isActive, activeTool, penColor = '#ef444
     };
   }, [isActive]);
 
-  // Highlighter removed — it needs page text interaction, not canvas
+  // Highlighter operates on DOM text nodes (mark injection), not canvas
   const canvasPointerEvents =
     isActive && (activeTool === 'pen' || activeTool === 'eraser')
       ? 'auto'
