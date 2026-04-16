@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { db, getStrokeData } from "../store/db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { deleteAnnotations } from "../store/undoable";
+import { currentPageKey } from "../utils/normalizeUrl";
 import type { UndoAction } from "../hooks/useUndoRedo";
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
 
 export default function useEraserTool({ isActive, canvasRef, eraserRadius = 20, onUndoableAction }: Props) {
   const isErasingRef = useRef(false);
-  const url = window.location.href;
+  const url = currentPageKey();
 
   const existingStrokes = useLiveQuery(
     () => db.annotations.where('[url+type]').equals([url, 'stroke']).toArray(),

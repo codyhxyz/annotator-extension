@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { serializeRange, deserializeRange, isInsideShadowDOM } from "../utils/rangeSerializer";
 import { addAnnotation, deleteAnnotation } from "../store/undoable";
 import { getPageContext } from "../utils/pageContext";
+import { currentPageKey } from "../utils/normalizeUrl";
 import type { UndoAction } from "../hooks/useUndoRedo";
 
 interface Props {
@@ -15,7 +16,7 @@ interface Props {
 const HIGHLIGHT_ATTR = 'data-annotator-highlight-id';
 
 export default function useHighlighterTool({ isActive, color, onUndoableAction }: Props) {
-  const url = window.location.href;
+  const url = currentPageKey();
 
   const highlights = useLiveQuery(
     () => db.annotations.where('[url+type]').equals([url, 'highlight']).toArray(),

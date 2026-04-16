@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import { Pen, StickyNote, Highlighter, Eraser, Trash2, MousePointer2, Search, Download, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { clearAll } from "../store/undoable";
+import { currentPageKey } from "../utils/normalizeUrl";
 import { exportAndDownload } from "../utils/exportAnnotations";
 import PresenceIndicator from "./PresenceIndicator";
 import AuthButton from "./AuthButton";
@@ -44,7 +45,7 @@ export default function CommandPalette({ activeTool, onSelectTool, onClose, onUn
     { id: "eraser", icon: Eraser, label: "Eraser" }
   ];
 
-  const currentUrl = window.location.href;
+  const currentUrl = currentPageKey();
 
   const handleExportAll = async () => {
     try {

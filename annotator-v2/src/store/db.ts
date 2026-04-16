@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
+import { normalizeUrl } from '../utils/normalizeUrl';
 
 export interface Point {
   x: number;
@@ -135,6 +136,23 @@ db.version(5).stores({
   strokes: null,
   notes: null,
   highlights: null,
+});
+
+// v6: normalize stored url → canonical page key. Also bumps updatedAt and
+// marks rows dirty so the rekey propagates to the sync backend.
+db.version(6).stores({
+  annotations: 'id, url, type, syncStatus, updatedAt, *tags, [url+type]',
+}).upgrade(async tx => {
+  const now = Math.floor(Date.now() / 1000);
+  await tx.table('annotations').toCollection().modify(ann => {
+    const a = ann as Annotation;
+    const normalized = normalizeUrl(a.url);
+    if (normalized !== a.url) {
+      a.url = normalized;
+      a.syncStatus = 'pending';
+      a.updatedAt = now;
+    }
+  });
 });
 
 export { db };

@@ -3,6 +3,7 @@ import { db, type Point, getStrokeData } from "../store/db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { addAnnotation } from "../store/undoable";
 import { getPageContext } from "../utils/pageContext";
+import { currentPageKey } from "../utils/normalizeUrl";
 import type { UndoAction } from "../hooks/useUndoRedo";
 
 interface Props {
@@ -17,7 +18,7 @@ interface Props {
 export default function usePenTool({ isActive, canvasRef, color, strokeWidth, redrawKey, onUndoableAction }: Props) {
   const isDrawingRef = useRef(false);
   const currentPathRef = useRef<Point[]>([]);
-  const url = window.location.href;
+  const url = currentPageKey();
 
   const existingStrokes = useLiveQuery(
     () => db.annotations.where('[url+type]').equals([url, 'stroke']).toArray(),

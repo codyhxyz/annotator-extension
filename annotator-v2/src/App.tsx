@@ -11,6 +11,7 @@ import { addAnnotation, updateAnnotation } from './store/undoable';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCursorForTool } from './utils/cursors';
 import { getPageContext } from './utils/pageContext';
+import { currentPageKey } from './utils/normalizeUrl';
 import { watchAuthState, startAutoSync, stopAutoSync, connect, disconnect } from './sync';
 
 type ToolWithColor = 'pen' | 'highlighter' | 'note';
@@ -33,7 +34,7 @@ export default function App() {
 
   const { push } = useUndoRedo();
 
-  const url = window.location.href;
+  const url = currentPageKey();
 
   useEffect(() => {
     if (!isActive) return;
