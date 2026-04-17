@@ -2,11 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import css from "./index.css?inline";
-import { migrateLegacyHostDbIfNeeded } from "./store/legacyMigration";
-
-// Fire-and-forget: move any legacy host-origin Dexie rows over to the
-// unified SW-owned store. No-op for fresh installs.
-migrateLegacyHostDbIfNeeded();
 
 let mounted = false;
 

@@ -15,13 +15,6 @@ Legacy host-origin databases written by older builds are migrated on
 first content-script load (`store/legacyMigration.ts`) and then torn
 down via `Dexie.delete('WebAnnotatorDB')`.
 
-## Bundle size
-
-`content.js` still pulls Dexie in for the one-shot legacy migration.
-Vite's web-extension target inlines dynamic imports (content scripts
-can't load chunks), so `await import('dexie')` doesn't code-split.
-Acceptable cost (~30KB gz) for a migration that runs once per host.
-
 ## External API — `subscribe` not yet wired
 
 `annotator:ping`, `list`, `get`, `create`, `update`, `delete` work
