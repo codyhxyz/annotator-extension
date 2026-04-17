@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { db, type Annotation, type PrivacyLevel, getNoteData } from '../store/db';
 import { deleteAnnotation, updateAnnotation } from '../store/undoable';
 import { Pin, PinOff } from 'lucide-react';
 import PrivacyToggle from './PrivacyToggle';
+import NoteEditor from './NoteEditor';
 import type { UndoAction } from '../hooks/useUndoRedo';
 
 interface Props {
@@ -12,50 +13,39 @@ interface Props {
 
 const MIN_WIDTH = 180;
 const MIN_HEIGHT = 80;
-const MAX_AUTO_HEIGHT = 400;
 
 export default function AnnotationCard({ annotation, onUndoableAction }: Props) {
   const noteData = getNoteData(annotation);
-  const [text, setText] = useState(noteData.text);
   const [position, setPosition] = useState({ x: noteData.x, y: noteData.y });
   const [size, setSize] = useState({ width: noteData.width || 250, height: noteData.height || 120 });
   const [isFocused, setIsFocused] = useState(false);
   const [pinned, setPinned] = useState(!!noteData.pinned);
   const [privacy, setPrivacy] = useState<PrivacyLevel>(annotation.privacy || 'private');
-  const textOnFocusRef = useRef(noteData.text);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [userResized, setUserResized] = useState(false);
+  const latestRef = useRef({ text: noteData.text, lexicalState: noteData.lexicalState });
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedRef = useRef({ text: noteData.text, lexicalState: noteData.lexicalState });
 
   const updateData = useCallback((patch: Record<string, unknown>) => {
     const current = getNoteData(annotation);
     const updated = { ...current, ...patch };
-    db.annotations.update(annotation.id, { data: JSON.stringify(updated), syncStatus: 'pending', updatedAt: Math.floor(Date.now() / 1000) });
+    db.annotations.update(annotation.id, {
+      data: JSON.stringify(updated),
+      syncStatus: 'pending',
+      updatedAt: Math.floor(Date.now() / 1000),
+    });
   }, [annotation]);
 
-  useEffect(() => {
-    if (userResized) return;
-    const el = textareaRef.current;
-    if (!el) return;
-
-    el.style.height = '0px';
-    const contentHeight = el.scrollHeight;
-    el.style.height = '';
-
-    const totalHeight = Math.max(MIN_HEIGHT, Math.min(contentHeight + 16 + 24, MAX_AUTO_HEIGHT));
-    if (Math.abs(totalHeight - size.height) > 4) {
-      setSize(prev => ({ ...prev, height: totalHeight }));
-      updateData({ height: totalHeight });
-    }
-  }, [text, userResized, annotation.id, updateData]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (text !== noteData.text) {
-        updateData({ text });
+  const handleEditorChange = useCallback((lexicalState: string, text: string) => {
+    latestRef.current = { text, lexicalState };
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      if (latestRef.current.text !== savedRef.current.text ||
+          latestRef.current.lexicalState !== savedRef.current.lexicalState) {
+        updateData(latestRef.current);
+        savedRef.current = { ...latestRef.current };
       }
     }, 500);
-    return () => clearTimeout(timer);
-  }, [text, annotation.id, noteData.text, updateData]);
+  }, [updateData]);
 
   const handleTogglePin = useCallback(() => {
     const wasPinned = pinned;
@@ -136,7 +126,6 @@ export default function AnnotationCard({ annotation, onUndoableAction }: Props) 
   const handleResizeStart = useCallback((e: React.MouseEvent, corner: string) => {
     e.stopPropagation();
     e.preventDefault();
-    setUserResized(true);
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -237,30 +226,15 @@ export default function AnnotationCard({ annotation, onUndoableAction }: Props) 
         </svg>
       </button>
 
-      {/* Text area */}
-      <div className="p-3" style={{ height: `calc(100% - 20px)` }}>
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onFocus={() => {
-            setIsFocused(true);
-            textOnFocusRef.current = text;
-          }}
-          onBlur={() => {
-            setIsFocused(false);
-            const oldText = textOnFocusRef.current;
-            const newText = text;
-            if (oldText !== newText) {
-              onUndoableAction?.({
-                undo: async () => { updateData({ text: oldText }); },
-                redo: async () => { updateData({ text: newText }); },
-              });
-            }
-          }}
-          className="w-full h-full bg-transparent resize-none outline-none text-slate-800 placeholder:text-slate-800/50 text-sm leading-relaxed"
-          placeholder="Type a note..."
-          autoFocus={!noteData.text}
+      {/* Editor */}
+      <div className="p-3 overflow-auto" style={{ height: `calc(100% - 20px)` }}>
+        <NoteEditor
+          initialState={noteData.lexicalState}
+          initialText={noteData.text}
+          onChange={handleEditorChange}
+          autoFocus={!noteData.text && !noteData.lexicalState}
+          onFocus={() => { setIsFocused(true); }}
+          onBlur={() => { setIsFocused(false); }}
         />
       </div>
 

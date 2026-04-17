@@ -42,6 +42,18 @@ chrome.action.onClicked.addListener(async (tab) => {
   await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_OVERLAY' }).catch(() => {});
 });
 
+// Public API surface — see src/api/protocol.ts for the contract.
+// Full handler is gated on the offscreen-document refactor (unified
+// storage). For now respond to annotator:ping so callers can feature-
+// detect; other verbs fail clean.
+chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'annotator:ping') {
+    sendResponse({ ok: true, type: 'pong' });
+    return;
+  }
+  sendResponse({ ok: false, error: 'not-yet-implemented: pending unified-storage refactor' });
+});
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'OPEN_FEED') {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/feed/index.html') });

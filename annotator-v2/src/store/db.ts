@@ -40,12 +40,17 @@ export interface StrokeData {
 }
 
 export interface NoteData {
+  /** Plain-text fallback — kept in sync with lexicalState for search/export. */
   text: string;
+  /** Lexical editor state JSON. Absent on pre-v7 notes; AnnotationCard treats it as a plain textarea in that case. */
+  lexicalState?: string;
   x: number;
   y: number;
   width: number;
   height: number;
   pinned?: boolean;
+  /** Optional highlight this note was spawned from. */
+  linkedHighlightId?: string;
 }
 
 export interface HighlightData {
