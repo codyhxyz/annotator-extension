@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, X, Pen, StickyNote, Highlighter, MapPin, Clock, ChevronRight, FileText, Trash2 } from "lucide-react";
 import PanelOverlay from "./PanelOverlay";
 import { searchAnnotations, getAnnotationCounts, type SearchResult, type FilterType } from "../utils/search";
-import { db } from "../store/db";
-import type { Annotation } from "../store/db";
+import { storage } from "../store/storage";
+import type { Annotation } from "../store/annotation";
 
 const typeIcon = (type: string) => {
   switch (type) {
@@ -90,11 +90,10 @@ export default function SearchPanel({ onClose }: Props) {
   const deleteResult = async (result: SearchResult, e: React.MouseEvent) => {
     e.stopPropagation();
     if (result.type === 'drawing') {
-      // Delete all strokes for that URL
-      const strokesOnUrl = await db.annotations.where('[url+type]').equals([result.url, 'stroke']).toArray();
-      await db.annotations.bulkDelete(strokesOnUrl.map((s: Annotation) => s.id));
+      const strokesOnUrl = await storage.list({ url: result.url, type: 'stroke' });
+      await storage.bulkDelete(strokesOnUrl.map((s: Annotation) => s.id));
     } else {
-      await db.annotations.delete(result.id);
+      await storage.delete(result.id);
     }
     runSearch(query, filter);
     getAnnotationCounts().then(setCounts);

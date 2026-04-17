@@ -18,6 +18,7 @@ export interface AnnotationFilter {
 
 export interface StorageAdapter {
   get(id: string): Promise<Annotation | undefined>;
+  bulkGet(ids: string[]): Promise<(Annotation | undefined)[]>;
   list(filter?: AnnotationFilter): Promise<Annotation[]>;
   put(ann: Annotation): Promise<void>;
   bulkPut(list: Annotation[]): Promise<void>;

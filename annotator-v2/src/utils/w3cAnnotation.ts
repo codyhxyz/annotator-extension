@@ -4,7 +4,8 @@
  * https://www.w3.org/TR/annotation-model/
  */
 
-import { db, type Annotation, getHighlightData, getNoteData, getStrokeData } from '../store/db';
+import { type Annotation, getHighlightData, getNoteData, getStrokeData } from '../store/annotation';
+import { storage } from '../store/storage';
 
 interface W3CAnnotation {
   '@context': string;
@@ -131,8 +132,8 @@ function toW3C(ann: Annotation): W3CAnnotation {
 /** Export all annotations as W3C Web Annotation JSON-LD array. */
 export async function exportAsW3C(options?: { url?: string }): Promise<string> {
   const all = options?.url
-    ? await db.annotations.where('url').equals(options.url).toArray()
-    : await db.annotations.toArray();
+    ? await storage.list({ url: options.url })
+    : await storage.list();
 
   const w3cAnnotations = all.map(toW3C);
   return JSON.stringify(w3cAnnotations, null, 2);
@@ -141,8 +142,8 @@ export async function exportAsW3C(options?: { url?: string }): Promise<string> {
 /** Export as W3C JSONL (one annotation per line). */
 export async function exportAsW3CJsonl(options?: { url?: string }): Promise<string> {
   const all = options?.url
-    ? await db.annotations.where('url').equals(options.url).toArray()
-    : await db.annotations.toArray();
+    ? await storage.list({ url: options.url })
+    : await storage.list();
 
   return all.map(ann => JSON.stringify(toW3C(ann))).join('\n') + (all.length > 0 ? '\n' : '');
 }

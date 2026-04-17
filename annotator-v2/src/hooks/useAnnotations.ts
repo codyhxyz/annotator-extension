@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Annotation } from '../store/db';
+import type { Annotation } from '../store/annotation';
 import { storage } from '../store/storage';
 import type { AnnotationFilter } from '../store/adapter';
 

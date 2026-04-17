@@ -11,7 +11,7 @@
  * events to a JSONL log in localStorage for external consumption.
  */
 
-import type { Annotation } from '../store/db';
+import type { Annotation } from '../store/annotation';
 
 export type EventType =
   | 'annotation.created'

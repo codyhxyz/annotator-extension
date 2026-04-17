@@ -2,16 +2,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import css from "./index.css?inline";
-import { performSync, watchAuthState } from "./sync";
+import { migrateLegacyHostDbIfNeeded } from "./store/legacyMigration";
 
-// Always-on: run sync on alarm ticks regardless of overlay visibility.
-// This is the content script boot, not gated on mountApp().
-let signedIn = false;
-watchAuthState((s) => { signedIn = s; });
-window.addEventListener("annotator-sync-tick", () => {
-  if (!signedIn) return;
-  performSync().catch(err => console.warn('[annotator] sync failed:', err));
-});
+// Fire-and-forget: move any legacy host-origin Dexie rows over to the
+// unified SW-owned store. No-op for fresh installs.
+migrateLegacyHostDbIfNeeded();
 
 let mounted = false;
 
@@ -28,12 +23,8 @@ function mountApp() {
   container.style.zIndex = "2147483647";
   container.style.pointerEvents = "none";
 
-  // Track full document height so the overlay covers all content
   const updateHeight = () => {
-    const h = Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight
-    );
+    const h = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
     container.style.height = h + "px";
   };
   updateHeight();
@@ -66,7 +57,6 @@ function mountApp() {
   );
 }
 
-// Listen for messages from background — mount lazily on first toggle
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "TOGGLE_OVERLAY") {
     mountApp();
@@ -79,11 +69,5 @@ chrome.runtime.onMessage.addListener((msg) => {
       detail: { annotationId: msg.annotationId },
     }));
     window.dispatchEvent(new CustomEvent("annotator-toggle"));
-  }
-
-  // Alarm-driven sync tick from the background SW. Sync runs without
-  // requiring the overlay to be open.
-  if (msg.type === "SYNC_TICK") {
-    window.dispatchEvent(new CustomEvent("annotator-sync-tick"));
   }
 });

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
-import { db, type Annotation, type PrivacyLevel, getNoteData } from '../store/db';
+import { type Annotation, type PrivacyLevel, getNoteData } from '../store/annotation';
+import { storage } from '../store/storage';
 import { deleteAnnotation, updateAnnotation } from '../store/undoable';
 import { Pin, PinOff } from 'lucide-react';
 import PrivacyToggle from './PrivacyToggle';
@@ -28,7 +29,7 @@ export default function AnnotationCard({ annotation, onUndoableAction }: Props) 
   const updateData = useCallback((patch: Record<string, unknown>) => {
     const current = getNoteData(annotation);
     const updated = { ...current, ...patch };
-    db.annotations.update(annotation.id, {
+    storage.update(annotation.id, {
       data: JSON.stringify(updated),
       syncStatus: 'pending',
       updatedAt: Math.floor(Date.now() / 1000),
@@ -62,11 +63,11 @@ export default function AnnotationCard({ annotation, onUndoableAction }: Props) 
           const pageX = viewportX + window.scrollX;
           const pageY = viewportY + window.scrollY;
           const current = getNoteData(annotation);
-          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: false, x: pageX, y: pageY }) });
+          storage.update(annotation.id, { data: JSON.stringify({ ...current, pinned: false, x: pageX, y: pageY }) });
         },
         redo: async () => {
           const current = getNoteData(annotation);
-          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: true, x: viewportX, y: viewportY }) });
+          storage.update(annotation.id, { data: JSON.stringify({ ...current, pinned: true, x: viewportX, y: viewportY }) });
         },
       });
     } else {
@@ -80,11 +81,11 @@ export default function AnnotationCard({ annotation, onUndoableAction }: Props) 
           const vpX = pageX - window.scrollX;
           const vpY = pageY - window.scrollY;
           const current = getNoteData(annotation);
-          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: true, x: vpX, y: vpY }) });
+          storage.update(annotation.id, { data: JSON.stringify({ ...current, pinned: true, x: vpX, y: vpY }) });
         },
         redo: async () => {
           const current = getNoteData(annotation);
-          db.annotations.update(annotation.id, { data: JSON.stringify({ ...current, pinned: false, x: pageX, y: pageY }) });
+          storage.update(annotation.id, { data: JSON.stringify({ ...current, pinned: false, x: pageX, y: pageY }) });
         },
       });
     }

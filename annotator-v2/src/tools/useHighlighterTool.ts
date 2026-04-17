@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getHighlightData, type Annotation } from "../store/db";
+import { getHighlightData, type Annotation } from "../store/annotation";
 import { useAnnotations } from "../hooks/useAnnotations";
 import { serializeRange, deserializeRange, isInsideShadowDOM } from "../utils/rangeSerializer";
 import { addAnnotation } from "../store/undoable";

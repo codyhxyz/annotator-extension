@@ -1,51 +1,39 @@
 # Known Limitations
 
-## Per-host IndexedDB (cross-origin storage split)
+_(Nothing critical. Open items are minor or well-scoped.)_
 
-**Status:** open. Tracked for the next refactor.
+## Cross-origin storage — **fixed**
 
-In MV3, content scripts run in the host page's storage context. Opening
-`new Dexie('WebAnnotatorDB')` from a content script creates a separate
-IndexedDB database *per origin*: the DB on `https://news.ycombinator.com`
-is not the same DB as the one on `https://example.com`. The extension's
-Feed page and Auth page, which run in the extension origin, see yet
-another DB.
+The previous limitation (content scripts opening per-host IndexedDB
+databases, so Feed and search-all saw only the current site) is
+resolved. The service worker now owns a single Dexie instance in the
+extension origin. Content scripts, Feed, and Auth pages proxy every
+read/write through `chrome.runtime.sendMessage`; the SW broadcasts an
+invalidation event after writes so subscribers re-fetch.
 
-### User-visible effects
+Legacy host-origin databases written by older builds are migrated on
+first content-script load (`store/legacyMigration.ts`) and then torn
+down via `Dexie.delete('WebAnnotatorDB')`.
 
-- The Feed / "All Annotations" view misses most annotations because it
-  lives in the extension origin, not the host origin where the
-  annotations were written.
-- "Search all annotations" only searches the current site's DB.
-- Exports are per-host.
-- Sync uploads per-host, so cloud state *is* unified, but the local
-  view is not.
+## Bundle size
 
-### The fix
+`content.js` still pulls Dexie in for the one-shot legacy migration.
+Vite's web-extension target inlines dynamic imports (content scripts
+can't load chunks), so `await import('dexie')` doesn't code-split.
+Acceptable cost (~30KB gz) for a migration that runs once per host.
 
-A Chrome *offscreen document* owns a single Dexie instance in the
-extension origin. Content scripts, Feed, Auth, and the background SW
-all talk to the offscreen document via `chrome.runtime.sendMessage`:
+## External API — `subscribe` not yet wired
 
-```
-content script / feed / bg  ──sendMessage──▶  offscreen document
-                                                (owns unified Dexie)
-```
+`annotator:ping`, `list`, `get`, `create`, `update`, `delete` work
+today via `chrome.runtime.onMessageExternal`. `annotator:subscribe`
+returns `not-yet-implemented` — persistent-port semantics via
+`externally_connectable` need more thought (per-caller port lifecycle,
+origin allowlisting for the subscriber, etc.). External callers can
+poll `annotator:list` in the meantime.
 
-The existing `StorageAdapter` abstraction (`store/adapter.ts`) is the
-seam: swap `dexieAdapter` for a `messagingAdapter` that proxies to the
-offscreen document. Tools do not change.
+## CLI bridge
 
-Sync moves with the DB — it runs inside the offscreen document and is
-triggered by `chrome.alarms` firing in the background SW.
-
-### Why not fixed in this pass
-
-It's a multi-hour rewrite with careful lifecycle work (offscreen
-documents have their own creation / teardown rules) and needs browser
-testing. Queued as a dedicated phase.
-
-### Workaround today
-
-Sync with the Cloudflare backend and use the server's `/annotations`
-endpoints as the unified source of truth for aggregate views.
+`ann serve` on `localhost:7717` is not yet connected. The external API
+handler above exposes the necessary verbs; a thin shim inside the CLI
+can forward HTTP → `chrome.runtime.sendMessage` via an intermediary
+tab. Not shipped in this pass.

@@ -1,5 +1,14 @@
-import type { StorageAdapter } from './adapter';
-import { dexieAdapter } from './dexieAdapter';
+/**
+ * Client-side storage singleton — content scripts, Feed, Auth.
+ *
+ * Proxies every call to the service worker, which owns the unified
+ * Dexie instance. Dexie is not imported from this module so it doesn't
+ * ship in the content bundle.
+ *
+ * The SW uses swStorage.ts (dexieAdapter) directly.
+ */
 
-/** The app-wide storage adapter. Swap in Phase 8 (CLI bridge, remote). */
-export const storage: StorageAdapter = dexieAdapter;
+import type { StorageAdapter } from './adapter';
+import { messagingAdapter } from './messagingAdapter';
+
+export const storage: StorageAdapter = messagingAdapter;

@@ -103,9 +103,8 @@ Don't overdesign for these now. Just don't paint yourself into a corner.
 Tracked, not abandoned.
 
 - **Page Chatbox** — public comment thread per page. Needs a `comments` annotation type, thread/vote data model, backend endpoints. Out of scope for the current pass.
-- **Unified cross-origin storage** — content scripts today open Dexie in the *host* origin, so each site has its own DB. The Feed / "all annotations" view is incomplete as a result. Fix is an offscreen document owning a single Dexie instance (see `KNOWN-LIMITATIONS.md`). This unblocks the external JSON-RPC API (`api/protocol.ts`) and the CLI `ann serve` bridge.
-- **AI-friendly API handler** — contract defined in `api/protocol.ts`; handler lands with the offscreen refactor.
-- **CLI bridge** — POST annotations to `ann serve` on localhost:7717, same gating as above.
+- **CLI bridge** — POST annotations to `ann serve` on localhost:7717. External API handler now ships in the service worker; the CLI-side shim that forwards HTTP → `chrome.runtime.sendMessage` is next.
+- **External `annotator:subscribe`** — other verbs ship today; subscribe needs a port-based protocol. Callers can poll `annotator:list` in the meantime.
 
 ---
 

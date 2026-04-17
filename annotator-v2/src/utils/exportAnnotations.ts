@@ -1,4 +1,5 @@
-import { db, type Annotation, getStrokeData, getNoteData, getHighlightData } from '../store/db';
+import { type Annotation, getStrokeData, getNoteData, getHighlightData } from '../store/annotation';
+import { storage } from '../store/storage';
 import { downloadFile } from './jsonl';
 
 interface ExportOptions {
@@ -11,8 +12,8 @@ interface ExportOptions {
  */
 export async function exportAsMarkdown(options?: ExportOptions): Promise<string> {
   const all = options?.url
-    ? await db.annotations.where('url').equals(options.url).toArray()
-    : await db.annotations.toArray();
+    ? await storage.list({ url: options.url })
+    : await storage.list();
 
   // Group by URL
   const groups = new Map<string, { pageTitle: string; favicon: string; items: Annotation[] }>();

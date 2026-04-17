@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Pen,
@@ -10,7 +9,8 @@ import {
   Layers,
   Globe,
 } from 'lucide-react';
-import { db, type Annotation, type AnnotationType, getNoteData, getHighlightData } from '../store/db';
+import { type Annotation, type AnnotationType, getNoteData, getHighlightData } from '../store/annotation';
+import { useAnnotations } from '../hooks/useAnnotations';
 
 type FilterType = 'all' | 'highlights' | 'notes' | 'drawings';
 
@@ -92,7 +92,7 @@ export default function Feed() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [search, setSearch] = useState('');
 
-  const annotations = useLiveQuery(() => db.annotations.toArray()) ?? [];
+  const annotations = useAnnotations({}) ?? [];
 
   const items = useMemo(() => {
     let merged = annotations.map(toFeedItem);

@@ -18,6 +18,7 @@ function applyFilter(filter?: AnnotationFilter) {
 
 export const dexieAdapter: StorageAdapter = {
   get: id => db.annotations.get(id),
+  bulkGet: ids => db.annotations.bulkGet(ids),
 
   list: async filter => {
     const rows = await applyFilter(filter).toArray();

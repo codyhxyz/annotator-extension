@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Copy, StickyNote, Trash2, Palette } from 'lucide-react';
 import { storage } from '../store/storage';
 import { deleteAnnotation, updateAnnotation, addAnnotation } from '../store/undoable';
-import { getHighlightData } from '../store/db';
+import { getHighlightData } from '../store/annotation';
 import type { UndoAction } from '../hooks/useUndoRedo';
 
 interface Props {

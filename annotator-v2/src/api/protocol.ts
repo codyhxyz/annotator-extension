@@ -11,7 +11,7 @@
  * stable contract before the wire handler lands.
  */
 
-import type { Annotation, AnnotationType } from '../store/db';
+import type { Annotation, AnnotationType } from '../store/annotation';
 
 export type ApiRequest =
   | { type: 'annotator:ping' }

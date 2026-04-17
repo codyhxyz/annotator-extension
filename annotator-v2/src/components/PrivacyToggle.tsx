@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Lock, Globe } from 'lucide-react';
-import type { PrivacyLevel } from '../store/db';
+import type { PrivacyLevel } from '../store/annotation';
 
 interface Props {
   value: PrivacyLevel;

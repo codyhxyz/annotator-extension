@@ -1,4 +1,5 @@
-import { db, type Annotation, getHighlightData, getNoteData } from '../store/db';
+import { type Annotation, getHighlightData, getNoteData } from '../store/annotation';
+import { storage } from '../store/storage';
 
 export interface SearchResult {
   id: string;
@@ -51,12 +52,10 @@ export async function searchAnnotations(
   query: string,
   filter?: FilterType | null,
 ): Promise<SearchResult[]> {
-  // Index-backed fetch: when a filter is set, hit the `type` index instead
-  // of scanning every annotation.
-  const source = filter
-    ? db.annotations.where('type').equals(FILTER_TO_TYPE[filter])
-    : db.annotations.orderBy('updatedAt').reverse();
-  const all = await source.toArray();
+  // SW routes filter-by-type through an index; unfiltered list scans.
+  const all = filter
+    ? await storage.list({ type: FILTER_TO_TYPE[filter] })
+    : await storage.list();
 
   const q = query.trim();
   const results: SearchResult[] = [];
@@ -104,10 +103,10 @@ export async function searchAnnotations(
 }
 
 export async function getAnnotationCounts(): Promise<{ highlight: number; note: number; drawing: number }> {
-  const [highlight, note, drawing] = await Promise.all([
-    db.annotations.where('type').equals('highlight').count(),
-    db.annotations.where('type').equals('note').count(),
-    db.annotations.where('type').equals('stroke').count(),
+  const [h, n, s] = await Promise.all([
+    storage.list({ type: 'highlight' }),
+    storage.list({ type: 'note' }),
+    storage.list({ type: 'stroke' }),
   ]);
-  return { highlight, note, drawing };
+  return { highlight: h.length, note: n.length, drawing: s.length };
 }

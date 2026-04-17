@@ -1,6 +1,6 @@
 import { MousePointer2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { type Annotation, getStrokeData } from '../store/db';
+import { type Annotation, getStrokeData } from '../store/annotation';
 import { useAnnotations } from '../hooks/useAnnotations';
 import { updateAnnotation } from '../store/undoable';
 import type { Tool, ToolContext } from './types';

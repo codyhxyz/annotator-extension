@@ -3,27 +3,25 @@
  * Each importer parses a source format → Annotation[] → bulk insert.
  */
 
-import { db, type Annotation, type AnnotationInput } from '../store/db';
+import { type Annotation, type AnnotationInput } from '../store/annotation';
+import { storage } from '../store/storage';
 import { parseJsonl } from './jsonl';
 
 // --- JSONL (our own format — backup/restore roundtrip) ---
 
 export async function importJsonl(content: string): Promise<{ imported: number; skipped: number }> {
   const incoming = parseJsonl(content);
-  const ids = incoming.map(a => a.id);
-  const existing = await db.annotations.bulkGet(ids);
+  const existing = await storage.bulkGet(incoming.map(a => a.id));
   const existingMap = new Map(existing.filter(Boolean).map(a => [a!.id, a!]));
 
   const toPut: Annotation[] = [];
   let skipped = 0;
-
   for (const ann of incoming) {
     const ex = existingMap.get(ann.id);
     if (ex && ex.updatedAt >= ann.updatedAt) { skipped++; continue; }
     toPut.push({ ...ann, syncStatus: 'pending' });
   }
-
-  if (toPut.length > 0) await db.annotations.bulkPut(toPut);
+  if (toPut.length > 0) await storage.bulkPut(toPut);
   return { imported: toPut.length, skipped };
 }
 
@@ -90,7 +88,7 @@ export async function importReadwiseCsv(content: string): Promise<{ imported: nu
     updatedAt: now,
   }));
 
-  await db.annotations.bulkAdd(records);
+  await storage.bulkPut(records);
   return { imported: records.length };
 }
 
@@ -139,7 +137,7 @@ export async function importKindleClippings(content: string): Promise<{ imported
     updatedAt: now,
   }));
 
-  await db.annotations.bulkAdd(records);
+  await storage.bulkPut(records);
   return { imported: records.length };
 }
 
@@ -204,7 +202,7 @@ export async function importHypothesisJson(content: string): Promise<{ imported:
     updatedAt: now,
   }));
 
-  await db.annotations.bulkAdd(records);
+  await storage.bulkPut(records);
   return { imported: records.length };
 }
 

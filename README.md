@@ -108,7 +108,7 @@ The extension injects a content script into every page, mounting a React app ins
 
 **Plugin model:** Tools are single-file modules exporting a `Tool` (see `tools/types.ts`) — id, label, hotkey, icon, surface (`canvas`|`dom`|`pointer`|`click`), and a `Component`. `App.tsx` iterates `tools/registry.ts`; adding a new tool is a one-line registry change.
 
-**Storage:** `StorageAdapter` (`store/adapter.ts`) is the seam between tools and the database. The default adapter uses Dexie with a unified `annotations` table and a typed JSON `data` blob per type. See `KNOWN-LIMITATIONS.md` for the pending offscreen-document migration that unifies storage across origins.
+**Storage:** `StorageAdapter` (`store/adapter.ts`) is the seam between tools and the database. The service worker owns a single Dexie instance in the extension origin; content scripts and extension pages proxy every call through `chrome.runtime.sendMessage`. Writes trigger an invalidation broadcast so subscribers re-fetch. Cross-site aggregate views (Feed, search-all, export-all) see the unified store.
 
 **Highlight anchoring:** W3C `TextPositionSelector` as the fast path, `TextQuoteSelector` (prefix/suffix) as the resilient path, plus a SHA-256 content hash of the normalized highlighted text for offline reanchoring.
 
@@ -116,7 +116,7 @@ The extension injects a content script into every page, mounting a React app ins
 
 **Realtime:** Per-page WebSocket rooms via Cloudflare Durable Objects. Reconnect is unbounded with exponential backoff + jitter (capped at 30s); auth token is re-read on every connect attempt so rotations propagate.
 
-**External API:** `api/protocol.ts` defines a JSON-RPC envelope for external callers (CLIs, MCP servers, local web tools). The handler ships with the offscreen-doc refactor.
+**External API:** `api/protocol.ts` defines a JSON-RPC envelope for external callers (CLIs, MCP servers, local web tools). `ping`, `list`, `get`, `create`, `update`, and `delete` are handled in the service worker via `chrome.runtime.onMessageExternal` against the unified store. `subscribe` returns not-yet-implemented — use polling or an extension-page shim.
 
 ## Data Formats
 

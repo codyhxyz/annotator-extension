@@ -3,14 +3,14 @@
  * The canonical machine-readable interchange format.
  */
 
-import { db, type Annotation } from '../store/db';
+import { type Annotation } from '../store/annotation';
+import { storage } from '../store/storage';
 
 /** Export all annotations as JSONL string. */
 export async function exportAsJsonl(options?: { url?: string }): Promise<string> {
   const all = options?.url
-    ? await db.annotations.where('url').equals(options.url).toArray()
-    : await db.annotations.toArray();
-
+    ? await storage.list({ url: options.url })
+    : await storage.list();
   return all.map(ann => JSON.stringify(ann)).join('\n') + (all.length > 0 ? '\n' : '');
 }
 
@@ -25,20 +25,18 @@ export function parseJsonl(jsonl: string): Annotation[] {
 /** Import annotations from JSONL, merging with existing data (LWW). */
 export async function importFromJsonl(jsonl: string): Promise<{ imported: number; skipped: number }> {
   const incoming = parseJsonl(jsonl);
-  let imported = 0;
+  const existing = await storage.bulkGet(incoming.map(a => a.id));
+  const existingMap = new Map(existing.filter(Boolean).map(a => [a!.id, a!]));
+
+  const toPut: Annotation[] = [];
   let skipped = 0;
-
   for (const ann of incoming) {
-    const existing = await db.annotations.get(ann.id);
-    if (existing && existing.updatedAt >= ann.updatedAt) {
-      skipped++;
-      continue;
-    }
-    await db.annotations.put({ ...ann, syncStatus: 'pending' });
-    imported++;
+    const ex = existingMap.get(ann.id);
+    if (ex && ex.updatedAt >= ann.updatedAt) { skipped++; continue; }
+    toPut.push({ ...ann, syncStatus: 'pending' });
   }
-
-  return { imported, skipped };
+  if (toPut.length > 0) await storage.bulkPut(toPut);
+  return { imported: toPut.length, skipped };
 }
 
 /** Download JSONL as a file. */

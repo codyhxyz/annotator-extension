@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getStrokeData } from "../store/db";
+import { getStrokeData } from "../store/annotation";
 import { useAnnotations } from "../hooks/useAnnotations";
 import { deleteAnnotations } from "../store/undoable";
 import { currentPageKey } from "../utils/normalizeUrl";

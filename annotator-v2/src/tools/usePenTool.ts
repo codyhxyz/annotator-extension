@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
-import { type Point, getStrokeData } from "../store/db";
+import { type Point, getStrokeData } from "../store/annotation";
 import { useAnnotations } from "../hooks/useAnnotations";
 import { addAnnotation } from "../store/undoable";
 import { getPageContext } from "../utils/pageContext";
