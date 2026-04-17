@@ -1,8 +1,8 @@
-# Web Annotator v2 — Ground-Up Rebuild
+# Web Annotator v2
 
-**Status:** Starting fresh.
+**Status:** In production. Working through the "killer Chrome extension" review.
 **Previous version:** See `old_extension/` for the v1 codebase.
-**Framework candidate:** [Antigravity](https://github.com/) (TBD — evaluate before committing)
+**Framework:** React + Vite + Dexie + Lexical. (Antigravity evaluated, declined — too opinionated for the permissive plugin model we want.)
 
 ---
 
@@ -39,7 +39,7 @@ This isn't just an annotation tool. It's the seed of a personal web dashboard. B
 - Area-based erasing for drawings
 - Clear-all with confirmation
 
-### Page Chatbox
+### Page Chatbox *(backlog — see "Deferred" below)*
 - Public comment thread anchored to every page
 - See what others have said, leave your own response
 - Lightweight — think Reddit comments meets browser-native, not Disqus
@@ -90,12 +90,23 @@ Don't overdesign for these now. Just don't paint yourself into a corner.
 
 ## Architecture Principles
 
-1. **Plugin architecture** — each tool is a self-contained module. Adding a new tool should be trivial.
-2. **Storage abstraction** — swap between local, sync, or cloud storage without touching tool code.
-3. **Minimal permissions** — request only what's needed, when it's needed.
-4. **Framework-light** — don't drag in a kitchen sink. Evaluate Antigravity; if it fits, use it. If not, stay lean.
-5. **Type-safe throughout** — TypeScript, strict mode, no `any`.
+1. **Plugin architecture** — each tool is a self-contained module. Adding a new tool is a single file + one line in `tools/registry.ts`. See `tools/types.ts` for the contract.
+2. **Storage abstraction** — `StorageAdapter` (`store/adapter.ts`) is the seam; tools never import `db` directly. The default adapter is Dexie; a messaging adapter for the offscreen-document migration is pending.
+3. **Minimal permissions** — `storage`, `alarms`, `host_permissions: <all_urls>`. No `tabs`, no `scripting`, no `activeTab`.
+4. **Framework-light** — React + Dexie + Lexical. No state library, no router, no CSS framework beyond Tailwind for extension UI.
+5. **Type-safe throughout** — TypeScript strict + `noUncheckedIndexedAccess`. No `any`.
 
 ---
 
-*Last updated: 2026-03-01*
+## Deferred
+
+Tracked, not abandoned.
+
+- **Page Chatbox** — public comment thread per page. Needs a `comments` annotation type, thread/vote data model, backend endpoints. Out of scope for the current pass.
+- **Unified cross-origin storage** — content scripts today open Dexie in the *host* origin, so each site has its own DB. The Feed / "all annotations" view is incomplete as a result. Fix is an offscreen document owning a single Dexie instance (see `KNOWN-LIMITATIONS.md`). This unblocks the external JSON-RPC API (`api/protocol.ts`) and the CLI `ann serve` bridge.
+- **AI-friendly API handler** — contract defined in `api/protocol.ts`; handler lands with the offscreen refactor.
+- **CLI bridge** — POST annotations to `ann serve` on localhost:7717, same gating as above.
+
+---
+
+*Last updated: 2026-04-16 — post architectural pass.*

@@ -8,20 +8,23 @@ Web Annotator is a Chrome extension that gives you a personal overlay on every w
 
 ### Tools
 
-- **Pen** (`d`) — Freehand drawing on any page
-- **Highlighter** (`h`) — Select and highlight text with word-boundary snapping
-- **Note** (`n`) — Draggable, resizable sticky notes
-- **Eraser** (`e`) — Remove strokes by proximity
-- **Pointer** (`v`) — Select and drag strokes
+- **Pen** (`d`) — pressure-simulated freehand drawing (`perfect-freehand`)
+- **Highlighter** (`h`) — word-boundary text highlights with a contextual menu (copy, add note, change color, delete)
+- **Note** (`n`) — rich-text sticky notes (`Lexical` — bold, italic, lists, keyboard formatting)
+- **Eraser** (`e`) — segment-distance proximity erase
+- **Pointer** (`v`) — select and drag strokes (segment-distance hit testing)
 
 ### Features
 
-- Annotations persist per-URL in IndexedDB (via Dexie)
-- Undo/redo (`Cmd+Z` / `Cmd+Shift+Z`)
+- Annotations persist per *canonical* URL (tracking params stripped, host lowercased, trailing slash normalized — so `/article?utm=x` and `/article/` match)
+- Per-URL, module-scoped undo/redo (`Cmd+Z` / `Cmd+Shift+Z`)
+- Background-driven cloud sync via `chrome.alarms` — runs whether or not the overlay is open
+- Plugin architecture: one-file tools registered in `tools/registry.ts`
+- Storage adapter: Dexie today, offscreen-document-unified store next
 - Export to Markdown, JSONL, or W3C Web Annotation format
 - Import from Readwise, Kindle, and Hypothesis
-- Full-text search across all annotations
-- Optional cloud sync and realtime collaboration via Cloudflare Workers
+- Full-text search across annotations (index-backed)
+- Optional realtime presence via Cloudflare Durable Objects — unbounded backoff reconnect, token re-read on every attempt
 
 ## Project Structure
 
@@ -94,18 +97,26 @@ node bin/ann.js --help
 | `h` | Highlighter |
 | `n` | Note tool |
 | `e` | Eraser |
-| `v` / `p` | Pointer |
+| `v` | Pointer |
 | `Esc` | Deselect tool |
 | `Cmd+Z` | Undo |
 | `Cmd+Shift+Z` | Redo |
 
 ## Architecture
 
-The extension injects a content script into every page, mounting a React app inside a Shadow DOM to avoid CSS conflicts with the host page. Each tool is a self-contained hook (`usePenTool`, `useHighlighterTool`, `useEraserTool`).
+The extension injects a content script into every page, mounting a React app inside a Shadow DOM to avoid CSS conflicts with the host page.
 
-**Storage:** Annotations use a unified Dexie (IndexedDB) table with typed `data` payloads per annotation type (stroke, highlight, note). Highlights are anchored using W3C TextQuoteSelector + TextPositionSelector for resilient reanchoring when page content changes.
+**Plugin model:** Tools are single-file modules exporting a `Tool` (see `tools/types.ts`) — id, label, hotkey, icon, surface (`canvas`|`dom`|`pointer`|`click`), and a `Component`. `App.tsx` iterates `tools/registry.ts`; adding a new tool is a one-line registry change.
 
-**Sync (optional):** Cursor-based bidirectional sync with last-write-wins conflict resolution. Realtime presence and live annotation broadcasts use Cloudflare Durable Objects for per-page WebSocket rooms.
+**Storage:** `StorageAdapter` (`store/adapter.ts`) is the seam between tools and the database. The default adapter uses Dexie with a unified `annotations` table and a typed JSON `data` blob per type. See `KNOWN-LIMITATIONS.md` for the pending offscreen-document migration that unifies storage across origins.
+
+**Highlight anchoring:** W3C `TextPositionSelector` as the fast path, `TextQuoteSelector` (prefix/suffix) as the resilient path, plus a SHA-256 content hash of the normalized highlighted text for offline reanchoring.
+
+**Sync:** `chrome.alarms` in the background SW fans out `SYNC_TICK` to every tab once per minute; each tab's content script performs its own delta sync (cursor-based, last-write-wins). Sync runs regardless of overlay state.
+
+**Realtime:** Per-page WebSocket rooms via Cloudflare Durable Objects. Reconnect is unbounded with exponential backoff + jitter (capped at 30s); auth token is re-read on every connect attempt so rotations propagate.
+
+**External API:** `api/protocol.ts` defines a JSON-RPC envelope for external callers (CLIs, MCP servers, local web tools). The handler ships with the offscreen-doc refactor.
 
 ## Data Formats
 
