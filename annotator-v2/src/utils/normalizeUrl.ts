@@ -9,6 +9,12 @@
  *
  * Callers should use this for every Dexie lookup and every annotation
  * write. Display copy should use the original href.
+ *
+ * Not the same as `cli/src/url-canonical.ts`. That one is the CLI's
+ * pending-notes queue key: it keeps the query verbatim and drops the
+ * fragment — matching whatever URL Claude emits, without second-guessing
+ * query-param semantics. This one is lossy on purpose. They serve
+ * different masters; don't consolidate without reconciling both goals.
  */
 
 const TRACKING_PARAM_PREFIXES = ['utm_', 'ref_'];

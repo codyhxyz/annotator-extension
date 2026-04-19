@@ -5,6 +5,13 @@
  * - Drop fragment
  * - Keep query string verbatim (sites care about order)
  * Invalid URLs are returned unchanged — caller decides whether to reject.
+ *
+ * Not the same as `annotator-v2/src/utils/normalizeUrl.ts`. That one is
+ * the extension's page-identity key: it strips tracking params, sorts
+ * query keys, and keeps the fragment (SPAs route on it). This one must
+ * preserve whatever Claude emits verbatim so the Handoff queue key
+ * matches the exact URL the browser is about to navigate to. Do not
+ * merge without reconciling those two goals — they pull opposite ways.
  */
 export function canonicalizeUrl(input: string): string {
   let u: URL;
