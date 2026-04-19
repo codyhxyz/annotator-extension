@@ -2,6 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import css from "./index.css?inline";
+import { drainPendingNotes } from "./handoff/drainPendingNotes";
+import { currentPageKey } from "./utils/normalizeUrl";
 
 let mounted = false;
 
@@ -66,3 +68,18 @@ chrome.runtime.onMessage.addListener((msg) => {
     window.dispatchEvent(new CustomEvent("annotator-toggle"));
   }
 });
+
+// Handoff: on script load, drain any pending notes the Handoff plugin
+// queued for this URL. If anything drained, auto-mount the overlay so
+// the user sees the note without needing to press backtick.
+(async () => {
+  try {
+    const drained = await drainPendingNotes(currentPageKey());
+    if (drained > 0) {
+      mountApp();
+      window.dispatchEvent(new CustomEvent("annotator-toggle"));
+    }
+  } catch (e) {
+    console.debug("[handoff] drain failed", e);
+  }
+})();
