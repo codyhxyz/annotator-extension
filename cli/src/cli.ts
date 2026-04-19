@@ -150,7 +150,7 @@ program.command('serve')
   .description('Start local HTTP API server')
   .option('--port <port>', 'Port number', '7717')
   .action((opts) => {
-    startServer(parseInt(opts.port));
+    void startServer(parseInt(opts.port));
   });
 
 // --- ann watch ---
