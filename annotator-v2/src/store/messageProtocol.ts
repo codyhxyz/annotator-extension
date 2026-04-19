@@ -30,7 +30,7 @@ export type StorageRequest = { kind: 'storage' } & StorageOp;
 export type SyncRequest = { kind: 'sync.run' };
 export type TokenRequest = { kind: 'auth.setToken'; token: string | null };
 
-export type ClientRequest = StorageRequest | SyncRequest | TokenRequest;
+export type ClientRequest = StorageRequest | SyncRequest | TokenRequest | HandoffRequest;
 
 export type StorageResponse<T = unknown> =
   | { ok: true; data?: T }
@@ -44,3 +44,21 @@ export interface InvalidationEvent {
   /** Optional filter hint so subscribers can short-circuit. */
   affected?: AnnotationFilter;
 }
+
+// ── Handoff: pull-on-page-load for Claude-task notes ───────────────
+
+export interface PendingNote {
+  id: string;
+  url: string;        // canonicalized by the server
+  text: string;
+  color?: string;
+  tags?: string[];
+  createdAt: number;
+}
+
+export type HandoffRequest = { kind: 'handoff.check'; url: string };
+
+export type HandoffResponse =
+  | { ok: true; notes: PendingNote[] }
+  | { ok: false; error: string };
+

@@ -66,6 +66,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
+  if ('kind' in req && req.kind === 'handoff.check') {
+    handleHandoffCheck(req.url)
+      .then(sendResponse)
+      .catch(err => sendResponse({ ok: false, error: String(err?.message ?? err) }));
+    return true;
+  }
+
   if ('type' in req) {
     if (req.type === 'OPEN_FEED') {
       chrome.tabs.create({ url: chrome.runtime.getURL('src/feed/index.html') });
@@ -124,6 +131,21 @@ async function handleStorage(msg: { kind: 'storage' } & StorageOp): Promise<Stor
       broadcastChanged(msg.filter);
       return { ok: true, data: deleted };
     }
+  }
+}
+
+// ── Handoff: proxy localhost pending-notes queue ─────────────────────
+// SW is a dumb proxy. Viewport-dependent positioning happens in the
+// content script, which owns window geometry.
+async function handleHandoffCheck(url: string): Promise<{ ok: true; notes: unknown[] }> {
+  try {
+    const r = await fetch(`http://localhost:7717/pending-notes?url=${encodeURIComponent(url)}`);
+    if (!r.ok) return { ok: true, notes: [] };
+    const body = await r.json() as { notes: unknown[] };
+    return { ok: true, notes: body.notes };
+  } catch {
+    // Bridge daemon not running — graceful no-op.
+    return { ok: true, notes: [] };
   }
 }
 
