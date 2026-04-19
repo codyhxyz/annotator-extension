@@ -33,12 +33,13 @@ Claude emits: Bash { command: "open https://github.com/foo/bar/pull/42" }
 hook reads $transcript_path, greps for tool_use_id, walks backward in that
   assistant turn's content array to find the preceding text block
 hook extracts note text:
-  1. grep the text for /^TASK:\s*(.+)$/m — if found, use that (skill-taught convention)
-  2. else: if text is ≥1 sentence and references the URL's domain/path, use it raw
-  3. else v0: skip (no note). v0.1: fall back to Haiku summarization of last 4 turns.
+  grep the preceding text for /^TASK:\s*(.+)$/m — if found, use it; if not, skip (no note).
+  No heuristics, no LLM fallback. The skill teaches Claude the convention; when Claude
+  follows it, the note is exactly what Claude wrote. When Claude doesn't, nothing happens
+  and the user can trivially see why (no TASK: line in the transcript).
   │
   ▼ hook POST http://localhost:7717/pending-notes
-     { url, text, ttlMs: 300000, sessionId, parentMessageId }
+     { url, text, sessionId, parentMessageId }
      (dedupe sibling URL opens via /tmp/handoff-hook-<sessionId>-<parentMessageId>)
   │
   ▼ (hook returns 0; Bash proceeds; browser opens URL)
@@ -112,17 +113,16 @@ type PendingNote = {
   color?: string;
   tags?: string[];
   createdAt: number;
-  expiresAt: number; // createdAt + ttlMs
 };
 
-const pendingNotes = new Map<string, PendingNote>();
+const pendingNotes = new Map<string, PendingNote>();  // LRU, capped at 1000 entries
 
 // POST /pending-notes → { id }
-// GET  /pending-notes?url=... → { notes: PendingNote[] }  // filters by URL match + expiry
+// GET  /pending-notes?url=... → { notes: PendingNote[] }  // filters by URL match
 // DELETE /pending-notes/:id → 204
 ```
 
-GC: on every GET, drop expired entries before filtering. No background timer needed.
+**No time-based expiry.** Entries live until drained (DELETE after the content script creates the annotation) or until LRU-evicted when the queue exceeds 1000 entries. Zombie entries from redirects or URLs the user never visits age out naturally as new activity arrives. No user-facing timeout: if Claude queues a note at 9am and the user opens the tab at 5pm, the note still shows.
 
 URL matching: canonicalize by lowercasing scheme/host, stripping trailing slash from pathname, and ignoring fragment. Keep query string verbatim (fragments and tracking params are common; we don't want to over-normalize and return wrong notes).
 
@@ -161,22 +161,23 @@ This keeps the SW dumb (just a localhost proxy), keeps positioning logic close t
 |------|----------|
 | `ann serve` not running | `fetch` fails silently; zero notes created. Plugin's hook logs a one-liner. |
 | URL is `file://`, `chrome://`, `about:` | Extension content script doesn't run there. No note. Fine. |
-| Redirect: hook queues A, user lands on B | No match; note stays in queue until TTL expires. Tradeoff we accept in v0. |
+| Redirect: hook queues A, user lands on B | No match; entry stays until LRU-evicted. Acceptable — zombie entries cost nothing and age out under load. |
 | Trailing slash / fragment mismatch | Canonicalizer handles. |
 | Multi-URL in same assistant turn | Dedupe file `/tmp/handoff-<session>-<parentMsgId>` ensures all siblings reuse the one extracted `TASK:` text. |
 | User refreshes page | Note already in Dexie; queue entry deleted on first drain; no duplicate. |
-| User runs `open URL` themselves in a Bash tool call (not Claude-intent) | Ambiguous. v0: if no preceding Claude text mentions the URL's domain or path, skip the note. Heuristic; will occasionally skip legitimate cases. |
+| User runs `open URL` themselves in a Bash tool call (not Claude-intent) | Hook fires, but the preceding assistant text won't contain a `TASK:` line, so no note is queued. Naturally handled by the TASK-only rule. |
 | Subagent opens URL | `isSidechain:true` in transcript. Hook still works via `tool_use_id` linkage; reads the subagent's JSONL. |
 | `pending.check` race with extension boot | Content script retries once on SW-not-ready error. |
 | `ann serve` already bound by another process on :7717 | Hook logs conflict, skips POST. Plugin install docs note the port. |
 
-## Non-goals (v0)
+## Non-goals
 
-- Haiku LLM fallback for terse preambles — ship heuristic + skill convention first, measure, add if needed.
-- Bidirectional Claude-watches-note updates — use extension's regular `annotator:list` polling or subscribe (deferred).
+- Any LLM or heuristic fallback for note text. `TASK:` preamble or nothing. Keeps the feature deterministic and auditable — when a note is missing, the user sees immediately that Claude didn't write a TASK line.
+- Bidirectional Claude-watches-note updates — use the extension's regular `annotator:list` polling; real-time `subscribe` is deferred at the extension level.
 - Cross-device sync for pending notes — queue is machine-local.
-- Desktop-notification fallback when extension is uninstalled — the plugin silently no-ops.
+- Desktop-notification fallback when the extension is uninstalled — the plugin silently no-ops.
 - Auto-installing `ann serve` as a launchd/systemd daemon — plugin spawns detached on first hook fire; persistence across reboots is a README instruction.
+- Time-based queue expiry — LRU-only.
 
 ## Success criteria
 
@@ -199,10 +200,10 @@ This feature advances three items on the project's priority stack:
 
 ## Implementation order (plan sketch — for the writing-plans step)
 
-1. `ann serve` `/pending-notes` POST/GET/DELETE with TTL + tests.
-2. Extension: `pending.check` message + SW handler + content-script wakeup + viewport-resolved note creation.
+1. `ann serve` `/pending-notes` POST/GET/DELETE with LRU cap + tests.
+2. Extension: `pending.check` message + SW proxy handler + content-script wakeup + viewport-resolved note creation.
 3. End-to-end manual test: `curl` → extension drops note on load.
-4. `handoff` plugin: hook script + transcript reverse-scan + extract-text heuristic + dedupe file.
+4. `handoff` plugin: hook script + transcript reverse-scan + `TASK:` regex + dedupe file.
 5. `handoff` skill: `TASK:` preamble convention.
-6. Plugin README + install test on a clean machine.
-7. Dogfood for a week; measure TASK-present rate, heuristic-hit rate; decide on Haiku fallback for v0.1.
+6. Plugin README + install verification on a clean machine.
+7. Dogfood. Adjust color/positioning/plugin name based on real usage.
